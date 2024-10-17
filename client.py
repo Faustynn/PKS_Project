@@ -48,6 +48,8 @@ connection_state_out = STATE_OUT_DISCONNECTED
 connection_state_in = STATE_IN_LISTEN
 state_lock = threading.Lock()
 connection_event = threading.Event()
+keep_alive_timer = None
+
 
 def create_MY_header(seq_num, ack_num, service_type, data_type, timer):
     checksum = 0
@@ -56,12 +58,12 @@ def create_MY_header(seq_num, ack_num, service_type, data_type, timer):
 
     header = struct.pack(
         HEADER_FORMAT,
-        seq_num,            # Sequence number
-        ack_num,            # Acknowledgment number
-        header_length,      # Header length
-        combined_service_data, # Type of service и Data type code
-        checksum,           # сhecksum placeholder
-        timer               # Timer
+        seq_num,  # Sequence number
+        ack_num,  # Acknowledgment number
+        header_length,  # Header length
+        combined_service_data,  # Type of service и Data type code
+        checksum,  # checksum placeholder
+        timer  # Timer
     )
     checksum = calculate_checksum(header)
 
@@ -77,8 +79,10 @@ def create_MY_header(seq_num, ack_num, service_type, data_type, timer):
 
     return header
 
+
 def calculate_checksum(data):
     return zlib.crc32(data) & 0xFFFF
+
 
 def send_SYN(s, dest_ip, dest_port, seq_num, ack_num):
     custom_header = create_MY_header(seq_num, ack_num, TYPE_OF_SERVICE_SYN, DATA_TYPE_KEEP_ALIVE, 0)
@@ -86,17 +90,32 @@ def send_SYN(s, dest_ip, dest_port, seq_num, ack_num):
     if DEBUG:
         print("DEBUG: Sent SYN, waiting for SYN-ACK...")
 
+
 def send_SYN_ACK(s, dest_ip, dest_port, seq_num, ack_num):
     custom_header = create_MY_header(seq_num, ack_num, TYPE_OF_SERVICE_SYN_ACK, DATA_TYPE_KEEP_ALIVE, 0)
     s.sendto(custom_header, (dest_ip, dest_port))
     if DEBUG:
         print("DEBUG: Sent SYN-ACK.")
 
+
 def send_ACK(s, dest_ip, dest_port, seq_num, ack_num):
     custom_header = create_MY_header(seq_num, ack_num, TYPE_OF_SERVICE_ACK, DATA_TYPE_KEEP_ALIVE, 0)
     s.sendto(custom_header, (dest_ip, dest_port))
     if DEBUG:
         print("DEBUG: Sent ACK, connection established.")
+
+
+def send_keep_alive(s, dest_ip, dest_port, seq_num, ack_num):
+    global keep_alive_timer
+    custom_header = create_MY_header(seq_num, ack_num, TYPE_OF_SERVICE_KEEP_ALIVE, DATA_TYPE_KEEP_ALIVE, 0)
+    s.sendto(custom_header, (dest_ip, dest_port))
+    if DEBUG:
+        print(f"DEBUG: Sent KEEP ALIVE to {dest_ip}:{dest_port}")
+
+    # Restart the timer for the next keep-alive
+    keep_alive_timer = threading.Timer(KEEP_ALIVE_INTERVAL, send_keep_alive, [s, dest_ip, dest_port, seq_num, ack_num])
+    keep_alive_timer.start()
+
 
 def receive_messages(s):
     global connection_state_out, connection_state_in
@@ -129,7 +148,8 @@ def receive_messages(s):
                 continue
 
             if DEBUG:
-                print(f"DEBUG: Received {service_type} from {addr}. Current states: Out: {connection_state_out}, In: {connection_state_in}")
+                print(
+                    f"DEBUG: Received {service_type} from {addr}. Current states: Out: {connection_state_out}, In: {connection_state_in}")
 
             with state_lock:
                 # SYN received
@@ -184,6 +204,7 @@ def receive_messages(s):
         except Exception as e:
             print(f"Error: {e}")
 
+
 def connect(src_ip, dest_ip, peer1_port, peer2_port):
     global connection_state_out, connection_state_in
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -219,33 +240,40 @@ def connect(src_ip, dest_ip, peer1_port, peer2_port):
 
     print("Connection established.")
 
-    keep_alive_counter = 0
-    while True:
-        data = input(f"User {peer1_port}: ")
-        if data.lower() == 'exit':
-            send_ACK(s, dest_ip, peer2_port, seq_num, seq_num + 1)  # Send FIN
-            print("Connection closed.")
-            break
-        elif keep_alive_counter >= KEEP_ALIVE_INTERVAL:
-            custom_header = create_MY_header(seq_num, ack_num, TYPE_OF_SERVICE_KEEP_ALIVE, DATA_TYPE_KEEP_ALIVE, TIMEOUT_KEEP_ALIVE)
-            s.sendto(custom_header, (dest_ip, peer2_port))
-            keep_alive_counter = 0
+    # Start sending keep-alives
+    send_keep_alive(s, dest_ip, peer2_port, seq_num, ack_num)
 
-        keep_alive_counter += 1
+    try:
+        while True:
+            data = input(f"User {peer1_port}: ")
 
-    s.close()
-    print("Socket closed.")
+            if data.lower() == 'exit':
+                send_ACK(s, dest_ip, peer2_port, seq_num, seq_num + 1)  # Send FIN
+                print("Connection closed.")
+                break
+            else:
+                # Sending text message
+                custom_header = create_MY_header(seq_num, ack_num, TYPE_OF_SERVICE_DATA, DATA_TYPE_TEXT, 0)
+                s.sendto(custom_header + data.encode('utf-8'), (dest_ip, peer2_port))
+
+    finally:
+        # Cancel keep-alive timer if it is set
+        if keep_alive_timer:
+            keep_alive_timer.cancel()
+
+        s.close()
 
 
 if __name__ == '__main__':
     os.system('cls' if os.name == 'nt' else 'clear')
     print('Chat started successfully!')
 
-    peer_host = input('Listener IP: ').strip()
+    peer_2_ip = input('Enter Listener IP: ').strip()
+    peer_1_ip = input('Enter Your IP: ').strip()
 
     while True:
         try:
-            peer_port_input = input('Listener Port: ').strip()
+            peer_port_input = input('Enter Listener Port: ').strip()
             peer_port = int(peer_port_input)
             break
         except ValueError:
@@ -253,13 +281,10 @@ if __name__ == '__main__':
 
     while True:
         try:
-            local_port_input = input('Your Port: ').strip()
+            local_port_input = input('Enter Your Port: ').strip()
             local_port = int(local_port_input)
             break
         except ValueError:
             print("Write correct port number!")
 
-    local_ip = socket.gethostbyname(socket.gethostname())
-
-
-    connect(local_ip, peer_host, local_port, peer_port)
+    connect(peer_1_ip, peer_2_ip, local_port, peer_port)
