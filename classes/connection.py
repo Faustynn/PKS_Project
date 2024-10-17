@@ -81,6 +81,9 @@ class Connection:
                 service_type = (combined_service_data >> 4) & 0x0F
                 data_type = combined_service_data & 0x0F
 
+                service_type_decimal = int(bin(service_type), 2)
+                data_type_decimal = int(bin(data_type), 2)
+
                 header_for_checksum = struct.pack(
                     self.config.HEADER_FORMAT,
                     seq_num,
@@ -97,44 +100,44 @@ class Connection:
                     continue
 
                 with self.state_lock:
-                    if service_type == self.config.TYPE_OF_SERVICE_SYN:
+                    if service_type_decimal == self.config.TYPE_OF_SERVICE_SYN:
                         if self.connection_state_in == self.config.STATE_IN_LISTEN:
                             print(f"Received SYN from {addr}. Sending SYN-ACK...")
                             self.send_SYN_ACK(s, addr[0], addr[1], seq_num, seq_num + 1)
                             self.connection_state_in = self.config.STATE_IN_SYN_RECEIVED
 
-                    elif service_type == self.config.TYPE_OF_SERVICE_SYN_ACK:
+                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_SYN_ACK:
                         if self.connection_state_out == self.config.STATE_OUT_SYN_SENT:
                             print(f"Received SYN-ACK from {addr}. Sending ACK...")
                             self.send_ACK(s, addr[0], addr[1], seq_num, seq_num + 1)
                             self.connection_state_out = self.config.STATE_OUT_ESTABLISHED
                             self.connection_event.set()
 
-                    elif service_type == self.config.TYPE_OF_SERVICE_ACK:
+                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_ACK:
                         if self.connection_state_in == self.config.STATE_IN_SYN_RECEIVED:
                             print(f"Received ACK from {addr}. Connection established.")
                             self.connection_state_in = self.config.STATE_IN_ESTABLISHED
                             self.connection_event.set()
 
-                    elif service_type == self.config.TYPE_OF_SERVICE_DATA:
-                        if data_type == self.config.DATA_TYPE_TEXT:
+                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_DATA:
+                        if data_type_decimal == self.config.DATA_TYPE_TEXT:
                             try:
                                 message = payload.decode('utf-8')
                                 print(f"\nMessage from User {addr[1]}: {message}")
                             except UnicodeDecodeError:
                                 print(f"Error while decoding!")
-                        elif data_type == self.config.DATA_TYPE_IMAGE:
+                        elif data_type_decimal == self.config.DATA_TYPE_IMAGE:
                             pass
                             #TO DO
-                        elif data_type == self.config.DATA_TYPE_VIDEO:
+                        elif data_type_decimal == self.config.DATA_TYPE_VIDEO:
                             pass
                             # TO DO
 
 
-                    elif service_type == self.config.TYPE_OF_SERVICE_KEEP_ALIVE:
+                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_KEEP_ALIVE:
                         pass
 
-                    elif service_type == self.config.TYPE_OF_SERVICE_FIN:
+                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_FIN:
                         print(f"FIN received from {addr}. Closing connection.")
                         with self.state_lock:
                             self.connection_state_out = self.config.STATE_OUT_DISCONNECTED
