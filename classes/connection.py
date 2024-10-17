@@ -12,7 +12,7 @@ class Connection:
         self.connection_event = threading.Event()
         self.keep_alive_timer = None
 
-    def create_MY_header(self, seq_num, ack_num, service_type, data_type, timer):
+    def create_Myheader(self, seq_num, ack_num, service_type, data_type, timer):
         checksum = 0
         header_length = self.config.HEADER_SIZE
         combined_service_data = (service_type << 4) | (data_type & 0x0F)
@@ -45,25 +45,22 @@ class Connection:
         return zlib.crc32(data) & 0xFFFF
 
     def send_SYN(self, s, dest_ip, dest_port, seq_num, ack_num):
-        custom_header = self.create_MY_header(seq_num, ack_num, self.config.TYPE_OF_SERVICE_SYN, self.config.DATA_TYPE_KEEP_ALIVE, 0)
+        custom_header = self.create_Myheader(seq_num, ack_num, self.config.TYPE_OF_SERVICE_SYN, self.config.DATA_TYPE_KEEP_ALIVE, 0)
         s.sendto(custom_header, (dest_ip, dest_port))
         if self.config.DEBUG:
             print("DEBUG: Sent SYN, waiting for SYN-ACK...")
-
     def send_SYN_ACK(self, s, dest_ip, dest_port, seq_num, ack_num):
-        custom_header = self.create_MY_header(seq_num, ack_num, self.config.TYPE_OF_SERVICE_SYN_ACK, self.config.DATA_TYPE_KEEP_ALIVE, 0)
+        custom_header = self.create_Myheader(seq_num, ack_num, self.config.TYPE_OF_SERVICE_SYN_ACK, self.config.DATA_TYPE_KEEP_ALIVE, 0)
         s.sendto(custom_header, (dest_ip, dest_port))
         if self.config.DEBUG:
             print("DEBUG: Sent SYN-ACK.")
-
     def send_ACK(self, s, dest_ip, dest_port, seq_num, ack_num):
-        custom_header = self.create_MY_header(seq_num, ack_num, self.config.TYPE_OF_SERVICE_ACK, self.config.DATA_TYPE_KEEP_ALIVE, 0)
+        custom_header = self.create_Myheader(seq_num, ack_num, self.config.TYPE_OF_SERVICE_ACK, self.config.DATA_TYPE_KEEP_ALIVE, 0)
         s.sendto(custom_header, (dest_ip, dest_port))
         if self.config.DEBUG:
             print("DEBUG: Sent ACK, connection established.")
-
     def send_keep_alive(self, s, dest_ip, dest_port, seq_num, ack_num):
-        custom_header = self.create_MY_header(seq_num, ack_num, self.config.TYPE_OF_SERVICE_KEEP_ALIVE, self.config.DATA_TYPE_KEEP_ALIVE, 0)
+        custom_header = self.create_Myheader(seq_num, ack_num, self.config.TYPE_OF_SERVICE_KEEP_ALIVE, self.config.DATA_TYPE_KEEP_ALIVE, 0)
         s.sendto(custom_header, (dest_ip, dest_port))
         if self.config.DEBUG:
             print(f"DEBUG: Sent KEEP ALIVE to {dest_ip}:{dest_port}")
@@ -123,13 +120,16 @@ class Connection:
                         if data_type == self.config.DATA_TYPE_TEXT:
                             try:
                                 message = payload.decode('utf-8')
-                                print(f"Message from {addr}: {message}")
+                                print(f"\nMessage from User {addr[1]}: {message}")
                             except UnicodeDecodeError:
                                 print(f"Error while decoding!")
                         elif data_type == self.config.DATA_TYPE_IMAGE:
-                            print(f"Image from {addr}")
+                            pass
+                            #TO DO
                         elif data_type == self.config.DATA_TYPE_VIDEO:
-                            print(f"Video from {addr}")
+                            pass
+                            # TO DO
+
 
                     elif service_type == self.config.TYPE_OF_SERVICE_KEEP_ALIVE:
                         pass
@@ -183,7 +183,7 @@ class Connection:
                     print("Connection closed.")
                     break
                 else:
-                    custom_header = self.create_MY_header(seq_num, ack_num, self.config.TYPE_OF_SERVICE_DATA, self.config.DATA_TYPE_TEXT, 0)
+                    custom_header = self.create_Myheader(seq_num, ack_num, self.config.TYPE_OF_SERVICE_DATA, self.config.DATA_TYPE_TEXT, 0)
                     s.sendto(custom_header + data.encode('utf-8'), (dest_ip, peer2_port))
 
         finally:

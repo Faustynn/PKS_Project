@@ -5,10 +5,12 @@ class Config:
     def __init__(self, config_file):
         self.config = configparser.ConfigParser()
         self.config.read(config_file)
+
         self.DEBUG = self.config.getboolean('MODE', 'DEBUG')
         self.MAX_UDP_SIZE = self.config.getint('HEADER', 'MAX_UDP_SIZE')
         self.HEADER_FORMAT = self.config.get('HEADER', 'HEADER_FORMAT')
         self.HEADER_SIZE = struct.calcsize(self.HEADER_FORMAT)
+
         self.load_constants()
 
     def load_constants(self):
@@ -17,7 +19,7 @@ class Config:
         self.DATA_TYPE_VIDEO = self.config.getint('DATA_TYPE', 'DATA_TYPE_VIDEO')
         self.DATA_TYPE_KEEP_ALIVE = self.config.getint('DATA_TYPE', 'DATA_TYPE_KEEP_ALIVE')
 
-        
+
         self.TYPE_OF_SERVICE_DATA = self.config.getint('TYPE_OF_SERVICE', 'TYPE_OF_SERVICE_DATA')
         self.TYPE_OF_SERVICE_KEEP_ALIVE = self.config.getint('TYPE_OF_SERVICE', 'TYPE_OF_SERVICE_KEEP_ALIVE')
         self.TYPE_OF_SERVICE_FIN = self.config.getint('TYPE_OF_SERVICE', 'TYPE_OF_SERVICE_FIN')
