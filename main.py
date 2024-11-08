@@ -7,7 +7,7 @@ if __name__ == '__main__':
     print('Chat started successfully!')
 
     peer_2_ip = input('Enter Listener IP: ').strip()
-    peer_1_ip = input('Enter Your IP: ').strip()
+    local_ip = input('Enter Your IP: ').strip()
 
     while True:
         try:
@@ -26,4 +26,4 @@ if __name__ == '__main__':
 
     config = Config('config/config.txt')
     connection = Connection(config)
-    connection.connect(peer_1_ip, peer_2_ip, local_port, peer_port)
+    connection.connect(local_ip, peer_2_ip, local_port, peer_port)
