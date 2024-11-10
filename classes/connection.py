@@ -2,7 +2,8 @@ import socket
 import struct
 import threading
 import time
-from classes.header import create_header, calculate_checksum
+import os
+from classes.header import calculate_checksum
 from classes.keep_alive import send_keep_alive
 from classes.hand_shake import send_SYN, send_ACK,send_FIN,send_RST,send_NACK,send_SYN_ACK
 from classes.fragmentation import Fragmentation
@@ -22,6 +23,8 @@ class Connection:
 
     def receive_messages(self, s):
         last_received_time = time.time()
+        fragments_buffer = {}
+
         while self.running:
             try:
                 data, addr = s.recvfrom(self.config.MAX_UDP_SIZE)
@@ -91,9 +94,14 @@ class Connection:
                         print(f"Fragment size updated to {self.fragment_size} by User{addr[1]}")
 
                     else:
-                        message = payload.decode('utf-8')
-                        print(f"\nMessage from User {addr[1]}: {message}")
+                        if addr not in fragments_buffer:
+                            fragments_buffer[addr] = b''
+                        fragments_buffer[addr] += payload
 
+                        if len(payload) < self.fragment_size:
+                            message = fragments_buffer[addr].decode('utf-8')
+                            print(f"\nMessage from User{addr[1]}: {message}")
+                            fragments_buffer[addr] = b''
 
             except socket.timeout:
                 if time.time()-last_received_time > self.config.KEEP_ALIVE_INTERVAL:
@@ -170,6 +178,18 @@ class Connection:
                 elif data.lower() == '!err':
                     pass
                     # TO DO algorithm to break the checksum
+                elif data.lower() == '!file':
+                    while True:
+                        try:
+                            path_file = input('Enter path to file: ').strip()
+
+                            with open(path_file, 'rb') as file:
+                                file_data = file.read()
+                                self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
+                                self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, file_data)
+                                break
+                        except FileNotFoundError:
+                            print("File not found!")
                 else:
                     self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
                     self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, data.encode('utf-8'))

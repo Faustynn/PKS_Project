@@ -4,3 +4,4 @@
 env
 logs/*
 classes/__pycache__
+test_files
