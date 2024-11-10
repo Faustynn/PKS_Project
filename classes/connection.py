@@ -5,6 +5,7 @@ import time
 from classes.header import create_header, calculate_checksum
 from classes.keep_alive import send_keep_alive
 from classes.hand_shake import send_SYN, send_ACK,send_FIN,send_RST,send_NACK,send_SYN_ACK
+from classes.fragmentation import Fragmentation
 
 class Connection:
     def __init__(self, config):
@@ -16,26 +17,27 @@ class Connection:
         self.keep_alive_timer = None
         self.running = True
         self.socket_closed = False
+        self.fragment_size = 0
+        self.fragmenter = Fragmentation(0, config.HEADER_SIZE, config)
 
     def receive_messages(self, s):
-        global last_received_time
+        last_received_time = time.time()
         while self.running:
             try:
                 data, addr = s.recvfrom(self.config.MAX_UDP_SIZE)
                 header = data[:self.config.HEADER_SIZE]
                 payload = data[self.config.HEADER_SIZE:]
 
-                seq_num, ack_num, header_len, flags, window, recv_checksum = struct.unpack(self.config.HEADER_FORMAT, header)
+                seq_num, ack_num, header_len, flags, window, recv_checksum,reserved = struct.unpack(self.config.HEADER_FORMAT, header)
 
 
-                header_for_checksum = struct.pack(self.config.HEADER_FORMAT, seq_num, ack_num, header_len, flags, 0, 0)
+                header_for_checksum = struct.pack(self.config.HEADER_FORMAT, seq_num, ack_num, header_len, flags, 0, 0,0)
                 calculated_checksum = calculate_checksum(header_for_checksum)
 
                 if recv_checksum != calculated_checksum:
                     print(f"Checksums dont match! {recv_checksum} != {calculated_checksum}")
                     break
 
-                last_received_time = time.time()
 
                 with self.state_lock:
                     if flags == self.config.FLAGS_SYN:
@@ -97,10 +99,12 @@ class Connection:
                 print(f"Error: {e}")
                 continue
 
-    def connect(self, src_ip, dest_ip, peer1_port, peer2_port):
+    def connect(self, src_ip, dest_ip, peer1_port, peer2_port, max_fragment_size):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
         s.bind((src_ip, peer1_port))
         s.settimeout(self.config.TIMEOUT_HANDSHAKE)
+        self.fragment_size = max_fragment_size
+        self.fragmenter = Fragmentation(max_fragment_size, self.config.HEADER_SIZE, self.config)
 
         receive_thread = threading.Thread(target=self.receive_messages, args=(s,))
         receive_thread.daemon = True
@@ -142,9 +146,7 @@ class Connection:
                     self.connection_state_out = self.config.STATE_OUT_SYN_SENT
                     break
                 else:
-                    custom_header = create_header(self.config, seq_num, ack_num, 0,0, 0)
-                    dest_ip = str(dest_ip)
-                    s.sendto(custom_header + data.encode('utf-8'), (dest_ip, int(peer2_port)))
+                    self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, data.encode('utf-8'))
         finally:
             if not self.socket_closed:
                 if self.keep_alive_timer is not None:
