@@ -6,7 +6,9 @@ class Config:
         self.config = configparser.ConfigParser()
         self.config.read(config_file)
 
-        self.DEBUG = self.config.getboolean('MODE', 'DEBUG')
+        self.DEBUG = self.config.getboolean('SPECIAL', 'DEBUG')
+        self.SAVE_DIR = self.config.get('SPECIAL', 'SAVE_DIR')
+
         self.MAX_UDP_SIZE = self.config.getint('HEADER', 'MAX_UDP_SIZE')
         self.HEADER_FORMAT = self.config.get('HEADER', 'HEADER_FORMAT')
         self.HEADER_SIZE = struct.calcsize(self.HEADER_FORMAT)

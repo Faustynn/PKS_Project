@@ -24,6 +24,7 @@ class Connection:
     def receive_messages(self, s):
         last_received_time = time.time()
         fragments_buffer = {}
+        file_names = {}
 
         while self.running:
             try:
@@ -98,9 +99,22 @@ class Connection:
                             fragments_buffer[addr] = b''
                         fragments_buffer[addr] += payload
 
+                        if addr not in file_names and b'\x00' in fragments_buffer[addr]: # only file have null byte
+                            file_name, file_data = fragments_buffer[addr].split(b'\x00', 1)
+                            file_names[addr] = file_name.decode('utf-8')
+                            fragments_buffer[addr] = file_data
+
+
                         if len(payload) < self.fragment_size:
-                            message = fragments_buffer[addr].decode('utf-8')
-                            print(f"\nMessage from User{addr[1]}: {message}")
+                            if addr in file_names:
+                                file_path = os.path.join(self.config.SAVE_DIR, file_names[addr])
+                                with open(file_path, 'wb') as file:
+                                    file.write(fragments_buffer[addr])
+                                print(f"File {file_names[addr]} received from User{addr[1]} and saved to {file_path}")
+                                del file_names[addr]
+                            else:
+                                message = fragments_buffer[addr].decode('utf-8')
+                                print(f"\nMessage from User {addr[1]}: {message}")
                             fragments_buffer[addr] = b''
 
             except socket.timeout:
@@ -183,10 +197,13 @@ class Connection:
                         try:
                             path_file = input('Enter path to file: ').strip()
 
+                            file_name = os.path.basename(path_file).encode('utf-8')
                             with open(path_file, 'rb') as file:
                                 file_data = file.read()
-                                self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
-                                self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, file_data)
+                                full_data = file_name + b'\x00' + file_data
+
+                                self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE,self.config)
+                                self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, full_data)
                                 break
                         except FileNotFoundError:
                             print("File not found!")
