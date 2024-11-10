@@ -17,8 +17,8 @@ class Connection:
         self.keep_alive_timer = None
         self.running = True
         self.socket_closed = False
-        self.fragment_size = 0
-        self.fragmenter = Fragmentation(0, config.HEADER_SIZE, config)
+        self.fragment_size = 1500 - int(config.HEADER_SIZE)
+        self.fragmenter = Fragmentation(self.fragment_size, config.HEADER_SIZE, config)
 
     def receive_messages(self, s):
         last_received_time = time.time()
@@ -84,6 +84,12 @@ class Connection:
                         self.connection_event.wait(self.config.TIMEOUT_HANDSHAKE)
                         self.running = False
                         break
+
+                    elif payload.startswith(b'Fragment size has been resized into'):
+                        self.fragment_size = int(payload.decode('utf-8').split()[-1])
+                        self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
+                        print(f"Fragment size updated to {self.fragment_size} by User{addr[1]}")
+
                     else:
                         message = payload.decode('utf-8')
                         print(f"\nMessage from User {addr[1]}: {message}")
@@ -99,12 +105,14 @@ class Connection:
                 print(f"Error: {e}")
                 continue
 
-    def connect(self, src_ip, dest_ip, peer1_port, peer2_port, max_fragment_size):
+    def connect(self, src_ip, dest_ip, peer1_port, peer2_port):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
         s.bind((src_ip, peer1_port))
         s.settimeout(self.config.TIMEOUT_HANDSHAKE)
-        self.fragment_size = max_fragment_size
-        self.fragmenter = Fragmentation(max_fragment_size, self.config.HEADER_SIZE, self.config)
+
+
+        if self.fragment_size == 1500 - int(self.config.HEADER_SIZE):
+            print(f"Enter start max fragment  throw '!ef' command, start size init: {1500-int(self.config.HEADER_SIZE)}")
 
         receive_thread = threading.Thread(target=self.receive_messages, args=(s,))
         receive_thread.daemon = True
@@ -141,11 +149,29 @@ class Connection:
                     self.running = False
                     break
                 elif data.lower() == '!r':
+                    # TO DO RESET
                     send_RST(self.config, s, dest_ip, peer2_port, seq_num, seq_num + 1)
                     print(f"Try to reset connection by User{peer1_port}.")
                     self.connection_state_out = self.config.STATE_OUT_SYN_SENT
                     break
+                elif data.lower() == '!ef':
+                    while True:
+                        try:
+                            max_fragment_size_input = input('Enter new max fragment size from 1 to 1480: ').strip()
+                            if int(max_fragment_size_input) < 1 or int(max_fragment_size_input) > 1480:
+                                raise ValueError
+                            max_fragment_size = int(max_fragment_size_input)
+                            notification_message = f"Fragment size has been resized into {max_fragment_size} "
+                            self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,notification_message.encode('utf-8'))
+                            break
+                        except ValueError:
+                            print("Write correct fragment size!")
+                    self.fragment_size = max_fragment_size
+                elif data.lower() == '!err':
+                    pass
+                    # TO DO algorithm to break the checksum
                 else:
+                    self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
                     self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, data.encode('utf-8'))
         finally:
             if not self.socket_closed:
