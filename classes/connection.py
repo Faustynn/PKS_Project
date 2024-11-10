@@ -1,7 +1,10 @@
 import socket
 import struct
 import threading
-import zlib
+import time
+from classes.header import create_header, calculate_checksum
+from classes.keep_alive import send_keep_alive
+from classes.hand_shake import send_SYN, send_ACK,send_FIN,send_RST,send_NACK,send_SYN_ACK
 
 class Connection:
     def __init__(self, config):
@@ -11,6 +14,8 @@ class Connection:
         self.state_lock = threading.Lock()
         self.connection_event = threading.Event()
         self.keep_alive_timer = None
+        self.running = True
+        self.socket_closed = False
 
     def create_Myheader(self, seq_num, ack_num, service_type, data_type, timer):
         checksum = 0
@@ -69,90 +74,89 @@ class Connection:
         self.keep_alive_timer.start()
 
     def receive_messages(self, s):
-        while True:
+        global last_received_time
+        while self.running:
             try:
                 data, addr = s.recvfrom(self.config.MAX_UDP_SIZE)
                 header = data[:self.config.HEADER_SIZE]
                 payload = data[self.config.HEADER_SIZE:]
 
-                unpacked = struct.unpack(self.config.HEADER_FORMAT, header)
-                seq_num, ack_num, header_len, combined_service_data, recv_checksum, timer = unpacked
+                seq_num, ack_num, header_len, flags, window, recv_checksum = struct.unpack(self.config.HEADER_FORMAT, header)
 
-                service_type = (combined_service_data >> 4) & 0x0F
-                data_type = combined_service_data & 0x0F
 
-                service_type_decimal = int(bin(service_type), 2)
-                data_type_decimal = int(bin(data_type), 2)
-
-                header_for_checksum = struct.pack(
-                    self.config.HEADER_FORMAT,
-                    seq_num,
-                    ack_num,
-                    header_len,
-                    combined_service_data,
-                    0,
-                    timer
-                )
-                calculated_checksum = self.calculate_checksum(header_for_checksum)
+                header_for_checksum = struct.pack(self.config.HEADER_FORMAT, seq_num, ack_num, header_len, flags, 0, 0)
+                calculated_checksum = calculate_checksum(header_for_checksum)
 
                 if recv_checksum != calculated_checksum:
-                    print(f"Checksums do not match! {recv_checksum} != {calculated_checksum}")
-                    continue
+                    print(f"Checksums dont match! {recv_checksum} != {calculated_checksum}")
+                    break
+
+                last_received_time = time.time()
 
                 with self.state_lock:
-                    if service_type_decimal == self.config.TYPE_OF_SERVICE_SYN:
+                    if flags == self.config.FLAGS_SYN:
                         if self.connection_state_in == self.config.STATE_IN_LISTEN:
-                            print(f"Received SYN from {addr}. Sending SYN-ACK...")
-                            self.send_SYN_ACK(s, addr[0], addr[1], seq_num, seq_num + 1)
+                            if self.config.DEBUG:
+                                print(f"Received SYN from {addr}. Sending SYN-ACK...")
+                            send_SYN_ACK(self.config, s, addr[0], addr[1], seq_num, seq_num + 1)
                             self.connection_state_in = self.config.STATE_IN_SYN_RECEIVED
 
-                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_SYN_ACK:
+                    elif flags == self.config.FLAGS_SYN_ACK:
                         if self.connection_state_out == self.config.STATE_OUT_SYN_SENT:
-                            print(f"Received SYN-ACK from {addr}. Sending ACK...")
-                            self.send_ACK(s, addr[0], addr[1], seq_num, seq_num + 1)
+                            if self.config.DEBUG:
+                                print(f"Received SYN-ACK from {addr}. Sending ACK...")
+                            send_ACK(self.config, s, addr[0], addr[1], seq_num, seq_num + 1)
                             self.connection_state_out = self.config.STATE_OUT_ESTABLISHED
                             self.connection_event.set()
 
-                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_ACK:
+                    elif flags == self.config.FLAGS_ACK:
                         if self.connection_state_in == self.config.STATE_IN_SYN_RECEIVED:
-                            print(f"Received ACK from {addr}. Connection established.")
+                            if self.config.DEBUG:
+                                print(f"Received ACK from {addr}. Connection established.")
                             self.connection_state_in = self.config.STATE_IN_ESTABLISHED
                             self.connection_event.set()
 
-                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_DATA:
-                        if data_type_decimal == self.config.DATA_TYPE_TEXT:
-                            try:
-                                message = payload.decode('utf-8')
-                                print(f"\nMessage from User {addr[1]}: {message}")
-                            except UnicodeDecodeError:
-                                print(f"Error while decoding!")
-                        elif data_type_decimal == self.config.DATA_TYPE_IMAGE:
-                            pass
-                            #TO DO
-                        elif data_type_decimal == self.config.DATA_TYPE_VIDEO:
-                            pass
-                            # TO DO
+                    elif flags == self.config.FLAGS_KEEP_ALIVE:
+                        if self.config.DEBUG:
+                            print("DEBUG: Received KEEP_ALIVE message")
 
-
-                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_KEEP_ALIVE:
-                        pass
-
-                    elif service_type_decimal == self.config.TYPE_OF_SERVICE_FIN:
-                        print(f"FIN received from {addr}. Closing connection.")
-                        with self.state_lock:
-                            self.connection_state_out = self.config.STATE_OUT_DISCONNECTED
-                            self.connection_state_in = self.config.STATE_IN_LISTEN
+                    elif flags == self.config.FLAGS_FIN:
+                        print(f"FIN received from {addr}. Sending FIN-ACK...")
+                        send_ACK(self.config, s, addr[0], addr[1], seq_num, seq_num + 1)
+                        self.connection_state_out = self.config.STATE_OUT_DISCONNECTED
+                        self.connection_state_in = self.config.STATE_IN_LISTEN
                         self.connection_event.set()
+                        self.running = False
+                        break
+
+                    elif flags == self.config.FLAGS_RST:
+                        print(f"RST received from {addr}. Sending RST-ACK...")
+                        send_ACK(self.config, s, addr[0], addr[1], seq_num, seq_num + 1)
+                        self.connection_state_out = self.config.STATE_OUT_SYN_SENT
+                        self.connection_state_in = self.config.STATE_IN_LISTEN
+                        self.connection_event.clear()
+                        self.connection_event.wait(self.config.TIMEOUT_HANDSHAKE)
+                        self.running = False
+                        break
+                    else:
+                        message = payload.decode('utf-8')
+                        print(f"\nMessage from User {addr[1]}: {message}")
+
 
             except socket.timeout:
+                if time.time()-last_received_time > self.config.KEEP_ALIVE_INTERVAL:
+                    print("Keep Alive: Closing connection due to inactiv")
+                    self.running = False
+                    break
                 continue
             except Exception as e:
                 print(f"Error: {e}")
+                continue
 
     def connect(self, src_ip, dest_ip, peer1_port, peer2_port):
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
         s.bind((src_ip, peer1_port))
-        s.settimeout(2.0)
+        s.settimeout(self.config.TIMEOUT_HANDSHAKE)
 
         receive_thread = threading.Thread(target=self.receive_messages, args=(s,))
         receive_thread.daemon = True
@@ -170,26 +174,39 @@ class Connection:
         self.connection_event.wait(self.config.TIMEOUT_HANDSHAKE)
 
         if self.connection_state_out != self.config.STATE_OUT_ESTABLISHED and self.connection_state_in != self.config.STATE_IN_ESTABLISHED:
-            print("Timeout waiting for connection.")
+            print("Connection failed.")
             s.close()
             return
 
         print("Connection established.")
-        self.send_keep_alive(s, dest_ip, peer2_port, seq_num, ack_num)
+
+
+        self.keep_alive_timer = send_keep_alive(self.config, s, dest_ip, peer2_port, seq_num, ack_num)
 
         try:
-            while True:
+            while self.running:
                 data = input(f"User {peer1_port}: ")
 
-                if data.lower() == 'exit':
-                    self.send_ACK(s, dest_ip, peer2_port, seq_num, seq_num + 1)
-                    print("Connection closed.")
+                if data.lower() == '!q':
+                    send_FIN(self.config, s, dest_ip, peer2_port, seq_num, seq_num + 1)
+                    print(f"Connection closed by User{peer1_port}.")
+                    self.running = False
+                    break
+                elif data.lower() == '!r':
+                    send_RST(self.config, s, dest_ip, peer2_port, seq_num, seq_num + 1)
+                    print(f"Try to reset connection by User{peer1_port}.")
+                    self.connection_state_out = self.config.STATE_OUT_SYN_SENT
                     break
                 else:
-                    custom_header = self.create_Myheader(seq_num, ack_num, self.config.TYPE_OF_SERVICE_DATA, self.config.DATA_TYPE_TEXT, 0)
-                    s.sendto(custom_header + data.encode('utf-8'), (dest_ip, peer2_port))
-
+                    custom_header = create_header(self.config, seq_num, ack_num, 0,0, 0)
+                    dest_ip = str(dest_ip)
+                    s.sendto(custom_header + data.encode('utf-8'), (dest_ip, int(peer2_port)))
         finally:
-            if self.keep_alive_timer:
-                self.keep_alive_timer.cancel()
-            s.close()
+            if not self.socket_closed:
+                if self.keep_alive_timer is not None:
+                    self.keep_alive_timer.cancel()
+
+                    print("Keep alive disconnect.")
+                    s.close()
+                    self.socket_closed = True
+            print("Stopping connection.")

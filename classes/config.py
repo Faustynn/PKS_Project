@@ -14,18 +14,14 @@ class Config:
         self.load_constants()
 
     def load_constants(self):
-        self.DATA_TYPE_TEXT = self.config.getint('DATA_TYPE', 'DATA_TYPE_TEXT')
-        self.DATA_TYPE_IMAGE = self.config.getint('DATA_TYPE', 'DATA_TYPE_IMAGE')
-        self.DATA_TYPE_VIDEO = self.config.getint('DATA_TYPE', 'DATA_TYPE_VIDEO')
-        self.DATA_TYPE_KEEP_ALIVE = self.config.getint('DATA_TYPE', 'DATA_TYPE_KEEP_ALIVE')
-
-
-        self.TYPE_OF_SERVICE_DATA = self.config.getint('TYPE_OF_SERVICE', 'TYPE_OF_SERVICE_DATA')
-        self.TYPE_OF_SERVICE_KEEP_ALIVE = self.config.getint('TYPE_OF_SERVICE', 'TYPE_OF_SERVICE_KEEP_ALIVE')
-        self.TYPE_OF_SERVICE_FIN = self.config.getint('TYPE_OF_SERVICE', 'TYPE_OF_SERVICE_FIN')
-        self.TYPE_OF_SERVICE_ACK = self.config.getint('TYPE_OF_SERVICE', 'TYPE_OF_SERVICE_ACK')
-        self.TYPE_OF_SERVICE_SYN = self.config.getint('TYPE_OF_SERVICE', 'TYPE_OF_SERVICE_HANDSHAKE')
-        self.TYPE_OF_SERVICE_SYN_ACK = 4
+        self.FLAGS_KEEP_ALIVE = self.config.getint('FLAGS', 'KEEP_ALIVE')
+        self.FLAGS_ACK = self.config.getint('FLAGS', 'ACK')
+        self.FLAGS_NACK = self.config.getint('FLAGS', 'NACK')
+        self.FLAGS_SYN = self.config.getint('FLAGS', 'SYN')
+        self.FLAGS_SYN_ACK = self.config.getint('FLAGS', 'SYN_ACK')
+        self.FLAGS_FIN = self.config.getint('FLAGS', 'FIN')
+        self.FLAGS_RST = self.config.getint('FLAGS', 'RST')
+        self.FLAGS_RESERVED_FOR_FUTURE_USE = self.config.getint('FLAGS', 'RESERVED_FOR_FUTURE_USE')
 
 
         self.STATE_OUT_DISCONNECTED = self.config.getint('STATES', 'STATE_OUT_DISCONNECTED')
@@ -38,5 +34,5 @@ class Config:
 
 
         self.TIMEOUT_HANDSHAKE = self.config.getint('TIMEOUTS', 'TIMEOUT_HANDSHAKE')
-        self.TIMEOUT_KEEP_ALIVE = self.config.getint('TIMEOUTS', 'TIMEOUT_KEEP_ALIVE')
+        self.KEEP_ALIVE_WAIT = self.config.getint('TIMEOUTS', 'KEEP_ALIVE_WAIT')
         self.KEEP_ALIVE_INTERVAL = self.config.getint('TIMEOUTS', 'KEEP_ALIVE_INTERVAL')
