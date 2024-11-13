@@ -13,6 +13,9 @@ class Config:
         self.HEADER_FORMAT = self.config.get('HEADER', 'HEADER_FORMAT')
         self.HEADER_SIZE = struct.calcsize(self.HEADER_FORMAT)
 
+        self.WINDOW_SIZE = self.config.getint('HEADER', 'WINDOW_SIZE')
+        self.TIMEOUT = self.config.getint('HEADER', 'TIMEOUT_WINDOW')
+
         self.load_constants()
 
     def load_constants(self):

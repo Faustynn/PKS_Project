@@ -5,7 +5,7 @@ import time
 import os
 from classes.header import calculate_checksum
 from classes.keep_alive import send_keep_alive
-from classes.hand_shake import send_SYN, send_ACK,send_FIN,send_RST,send_NACK,send_SYN_ACK
+from classes.hand_shake import send_SYN, send_ACK, send_FIN, send_RST, send_NACK, send_SYN_ACK
 from classes.fragmentation import Fragmentation
 
 class Connection:
@@ -18,6 +18,7 @@ class Connection:
         self.keep_alive_timer = None
         self.running = True
         self.socket_closed = False
+        self.error = False
         self.fragment_size = 1500 - int(config.HEADER_SIZE)
         self.fragmenter = Fragmentation(self.fragment_size, config.HEADER_SIZE, config)
 
@@ -32,16 +33,17 @@ class Connection:
                 header = data[:self.config.HEADER_SIZE]
                 payload = data[self.config.HEADER_SIZE:]
 
-                seq_num, ack_num, header_len, flags, window, recv_checksum,reserved = struct.unpack(self.config.HEADER_FORMAT, header)
+                seq_num, ack_num, header_len, flags, window, recv_checksum, reserved = struct.unpack(self.config.HEADER_FORMAT, header)
 
-
-                header_for_checksum = struct.pack(self.config.HEADER_FORMAT, seq_num, ack_num, header_len, flags, 0, 0,0)
+                header_for_checksum = struct.pack(self.config.HEADER_FORMAT, seq_num, ack_num, header_len, flags, self.config.WINDOW_SIZE, 0, 0)
                 calculated_checksum = calculate_checksum(header_for_checksum)
+
+                if self.error:
+                    calculated_checksum = 0
 
                 if recv_checksum != calculated_checksum:
                     print(f"Checksums dont match! {recv_checksum} != {calculated_checksum}")
                     break
-
 
                 with self.state_lock:
                     if flags == self.config.FLAGS_SYN:
@@ -92,25 +94,24 @@ class Connection:
                     elif payload.startswith(b'Fragment size has been resized into'):
                         self.fragment_size = int(payload.decode('utf-8').split()[-1])
                         self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
-                        print(f"Fragment size updated to {self.fragment_size} by User{addr[1]}")
+                        print(f"Fragment size updated to {self.fragment_size} by User {addr[1]}")
 
                     else:
                         if addr not in fragments_buffer:
                             fragments_buffer[addr] = b''
                         fragments_buffer[addr] += payload
 
-                        if addr not in file_names and b'\x00' in fragments_buffer[addr]: # only file have null byte
+                        if addr not in file_names and b'\x00' in fragments_buffer[addr]:  # only file has null byte
                             file_name, file_data = fragments_buffer[addr].split(b'\x00', 1)
                             file_names[addr] = file_name.decode('utf-8')
                             fragments_buffer[addr] = file_data
-
 
                         if len(payload) < self.fragment_size:
                             if addr in file_names:
                                 file_path = os.path.join(self.config.SAVE_DIR, file_names[addr])
                                 with open(file_path, 'wb') as file:
                                     file.write(fragments_buffer[addr])
-                                print(f"File {file_names[addr]} received from User{addr[1]} and saved to {file_path}")
+                                print(f"File {file_names[addr]} received from User {addr[1]} and saved to {file_path}")
                                 del file_names[addr]
                             else:
                                 message = fragments_buffer[addr].decode('utf-8')
@@ -118,8 +119,8 @@ class Connection:
                             fragments_buffer[addr] = b''
 
             except socket.timeout:
-                if time.time()-last_received_time > self.config.KEEP_ALIVE_INTERVAL:
-                    print("Keep Alive: Closing connection due to inactiv")
+                if time.time() - last_received_time > self.config.KEEP_ALIVE_INTERVAL:
+                    print("Keep Alive: Closing connection due to inactivity")
                     self.running = False
                     break
                 continue
@@ -128,13 +129,12 @@ class Connection:
                 continue
 
     def connect(self, src_ip, dest_ip, peer1_port, peer2_port):
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # IPv4, UDP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # IPv4, UDP
         s.bind((src_ip, peer1_port))
         s.settimeout(self.config.TIMEOUT_HANDSHAKE)
 
-
         if self.fragment_size == 1500 - int(self.config.HEADER_SIZE):
-            print(f"Enter start max fragment  throw '!ef' command, start size init: {1500-int(self.config.HEADER_SIZE)}")
+            print(f"Enter start max fragment throw '!ef' command, start size init: {1500 - int(self.config.HEADER_SIZE)}")
 
         receive_thread = threading.Thread(target=self.receive_messages, args=(s,))
         receive_thread.daemon = True
@@ -158,7 +158,6 @@ class Connection:
 
         print("Connection established.")
 
-
         self.keep_alive_timer = send_keep_alive(self.config, s, dest_ip, peer2_port, seq_num, ack_num)
 
         try:
@@ -167,13 +166,12 @@ class Connection:
 
                 if data.lower() == '!q':
                     send_FIN(self.config, s, dest_ip, peer2_port, seq_num, seq_num + 1)
-                    print(f"Connection closed by User{peer1_port}.")
+                    print(f"Connection closed by User {peer1_port}.")
                     self.running = False
                     break
                 elif data.lower() == '!r':
-                    # TO DO RESET
                     send_RST(self.config, s, dest_ip, peer2_port, seq_num, seq_num + 1)
-                    print(f"Try to reset connection by User{peer1_port}.")
+                    print(f"Trying to reset connection by User {peer1_port}.")
                     self.connection_state_out = self.config.STATE_OUT_SYN_SENT
                     break
                 elif data.lower() == '!ef':
@@ -184,14 +182,11 @@ class Connection:
                                 raise ValueError
                             max_fragment_size = int(max_fragment_size_input)
                             notification_message = f"Fragment size has been resized into {max_fragment_size} "
-                            self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,notification_message.encode('utf-8'))
+                            self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, notification_message.encode('utf-8'))
                             break
                         except ValueError:
                             print("Write correct fragment size!")
                     self.fragment_size = max_fragment_size
-                elif data.lower() == '!err':
-                    pass
-                    # TO DO algorithm to break the checksum
                 elif data.lower() == '!file':
                     while True:
                         try:
@@ -202,7 +197,7 @@ class Connection:
                                 file_data = file.read()
                                 full_data = file_name + b'\x00' + file_data
 
-                                self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE,self.config)
+                                self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
                                 self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, full_data)
                                 break
                         except FileNotFoundError:
