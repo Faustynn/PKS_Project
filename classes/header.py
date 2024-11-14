@@ -2,7 +2,7 @@ import struct
 import zlib
 
  # Format !IIHHHHI (20)
-def create_header(config, seq_num, ack_num, flags, window,checksum, reserved):
+def create_header(config, seq_num, ack_num, flags, window,checksum, total_fragments,reserved):
     checksum = 0
     offset = config.HEADER_SIZE
     reserved = 0
@@ -15,6 +15,7 @@ def create_header(config, seq_num, ack_num, flags, window,checksum, reserved):
         flags,
         window,
         checksum,
+        total_fragments,
         reserved,
     )
     checksum = calculate_checksum(header)
@@ -27,6 +28,7 @@ def create_header(config, seq_num, ack_num, flags, window,checksum, reserved):
         flags,
         window,
         checksum,
+        total_fragments,
         reserved,
     )
     return header

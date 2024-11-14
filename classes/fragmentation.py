@@ -31,34 +31,31 @@ class Fragmentation:
 
             # Resend fragments that in a buffer
             for seq_num, fragment in buffer_non_ack.items():
-                header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, 0)
+                header = create_header(self.config, seq_num, ack_num, 0, window_size, 0,total_fragments, 0)
                 s.sendto(header + fragment, (dest_ip, dest_port))
                 buffer_non_ack.pop(seq_num)
             return buffer_non_ack
-
 
         elif total_fragments == 1:
             print("Sending single fragment")
 
             # Send the single fragment directly
             fragment = fragments[0]
-            header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, 0)
+            header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, total_fragments,0)
             s.sendto(header + fragment, (dest_ip, dest_port))
             print(f"Sent fragment {seq_num}")
             buffer_non_ack[seq_num] = fragment
-            seq_num += 1
-           # print(f"{buffer_non_ack, seq_num}Send buff")
-            return buffer_non_ack, seq_num
+            return [(fragment, seq_num)]
         else:
             print("Sending multiple fragments")
 
             # Send fragments and add into buffer_non_ack
+            print(f"Total fragments: {fragments}")
             for i, fragment in enumerate(fragments):
-                header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, 0)
+                header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, total_fragments,0)
                 s.sendto(header + fragment, (dest_ip, dest_port))
-                print(f"Sent fragment {seq_num}")
+                print(f"Sent fragment {seq_num} / {total_fragments}")
                 buffer_non_ack[seq_num] = fragment
                 seq_num += 1
-            return buffer_non_ack
-
+            return [(fragment, seq) for seq, fragment in buffer_non_ack.items()]
 

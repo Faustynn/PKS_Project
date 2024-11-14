@@ -1,7 +1,7 @@
 from classes.header import create_header
 
 def send_SYN(config, socket, dest_ip, dest_port, seq_num, ack_num):
-    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_SYN, config.WINDOW_SIZE, 0, 0)
+    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_SYN, config.WINDOW_SIZE, 0, 1,0)
 
     try:
         socket.sendto(custom_header, (dest_ip, dest_port))
@@ -12,7 +12,7 @@ def send_SYN(config, socket, dest_ip, dest_port, seq_num, ack_num):
         return
 
 def send_ACK(config, socket, dest_ip, dest_port, seq_num, ack_num):
-    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_ACK, config.WINDOW_SIZE, 0, 0)
+    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_ACK, config.WINDOW_SIZE, 0, 1,0)
 
     try:
         socket.sendto(custom_header, (dest_ip, dest_port))
@@ -23,7 +23,7 @@ def send_ACK(config, socket, dest_ip, dest_port, seq_num, ack_num):
         return
 
 def send_FIN(config, socket, dest_ip, dest_port, seq_num, ack_num):
-    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_FIN, config.WINDOW_SIZE, 0, 0)
+    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_FIN, config.WINDOW_SIZE, 0, 1,0)
 
     try:
         socket.sendto(custom_header, (dest_ip, dest_port))
@@ -34,7 +34,7 @@ def send_FIN(config, socket, dest_ip, dest_port, seq_num, ack_num):
         return
 
 def send_RST(config, socket, dest_ip, dest_port, seq_num, ack_num):
-    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_RST, config.WINDOW_SIZE, 0, 0)
+    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_RST, config.WINDOW_SIZE, 0, 1,0)
 
     try:
         socket.sendto(custom_header, (dest_ip, dest_port))
@@ -45,7 +45,7 @@ def send_RST(config, socket, dest_ip, dest_port, seq_num, ack_num):
         return
 
 def send_NACK(config, socket, dest_ip, dest_port, seq_num, ack_num):
-    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_NACK, config.WINDOW_SIZE, 0, 0)
+    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_NACK, config.WINDOW_SIZE, 0, 1,0)
 
     try:
         socket.sendto(custom_header, (dest_ip, dest_port))
@@ -56,7 +56,7 @@ def send_NACK(config, socket, dest_ip, dest_port, seq_num, ack_num):
         return
 
 def send_SYN_ACK(config, socket, dest_ip, dest_port, seq_num, ack_num):
-    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_SYN_ACK, config.WINDOW_SIZE, 0, 0)
+    custom_header = create_header(config, seq_num, ack_num, config.FLAGS_SYN_ACK, config.WINDOW_SIZE, 0, 1,0)
 
     try:
         socket.sendto(custom_header, (dest_ip, dest_port))
