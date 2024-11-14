@@ -3,7 +3,6 @@ import struct
 import threading
 import time
 import os
-from time import perf_counter
 
 from classes.header import calculate_checksum
 from classes.keep_alive import send_keep_alive
@@ -24,6 +23,7 @@ class Connection:
         self.fragment_size = 1500 - int(config.HEADER_SIZE)
         self.fragmenter = Fragmentation(self.fragment_size, config.HEADER_SIZE, config)
         self.fragments_buffer = {}
+        self.unacknowledged_fragments = {}
 
     def receive_messages(self, s):
         last_received_time = time.time()
@@ -51,9 +51,6 @@ class Connection:
                     print(f"Checksums dont match! {recv_checksum} != {calculated_checksum}")
                     break
 
-                if flags != self.config.FLAGS_KEEP_ALIVE:
-                    print(f"Received {payload} from {addr}")
-
                 with self.state_lock:
                     if flags == self.config.FLAGS_SYN:
                         if self.connection_state_in == self.config.STATE_IN_LISTEN:
@@ -77,7 +74,12 @@ class Connection:
                             self.connection_state_in = self.config.STATE_IN_ESTABLISHED
                             self.connection_event.set()
                         else:
-                            print(f"Received ACK from {addr}")
+                            # delete from unacknowledged_fragments frag. with seq_num
+                            if seq_num in self.unacknowledged_fragments:
+                                del self.unacknowledged_fragments[seq_num]
+                                print(f"ACK received for fragment {seq_num}")
+                            else:
+                                print(f"Received ACK from {addr}")
 
                     elif flags == self.config.FLAGS_FIN:
                         print(f"FIN received from {addr}. Sending FIN-ACK...")
@@ -105,18 +107,20 @@ class Connection:
                             send_ACK(self.config, s, addr[0], addr[1], seq_num, seq_num + 1)
                             print(f"ACK sent for fragment {seq_num}")
 
-                            # Сохраняем фрагмент в буфер
-                            if addr not in self.fragments_buffer:
-                                self.fragments_buffer[addr] = {}
-                            self.fragments_buffer[addr][seq_num] = payload
 
-                            # Проверяем, можем ли собрать сообщение
+                            # Check if we can assemble the message
                             print(f"Expected: {expected_seq_num}")
-                            print(f"Buffer: {self.fragments_buffer[addr]}")
-                            while expected_seq_num in self.fragments_buffer[addr]:
-                                current_payload = self.fragments_buffer[addr][expected_seq_num]
+                            print(f"Received: {seq_num}")
 
-                                # Обработка файла
+                            if expected_seq_num not in self.fragments_buffer:
+                                self.fragments_buffer[expected_seq_num] = {}
+
+                            self.fragments_buffer[expected_seq_num][seq_num] = payload
+
+                            while expected_seq_num in self.fragments_buffer and seq_num in self.fragments_buffer[expected_seq_num]:
+                                current_payload = self.fragments_buffer[expected_seq_num][seq_num]
+
+                                # Process file
                                 if b'\x00' in current_payload and addr not in file_names:
                                     file_name, file_data = current_payload.split(b'\x00', 1)
                                     file_names[addr] = file_name.decode('utf-8')
@@ -125,18 +129,23 @@ class Connection:
                                     print(f"File {file_names[addr]} received from User {addr[1]}")
                                     del file_names[addr]
 
-                                # Обработка текстового сообщения
+                                # Process text message
                                 else:
                                     try:
                                         message = current_payload.decode('utf-8')
                                         print(f"\nMessage from User {addr[1]}: {message}")
                                         print(f"User {s.getsockname()[1]}: ", end='',
-                                              flush=True)  # Восстанавливаем приглашение ввода
+                                              flush=True)  # Restore input prompt
                                     except UnicodeDecodeError:
                                         print(f"Error decoding message from User {addr[1]}")
 
-                                del self.fragments_buffer[addr][expected_seq_num]
+                                del self.fragments_buffer[expected_seq_num]
                                 expected_seq_num += 1
+
+                            # Запрос NACK для отсутствующих фрагментов
+                            if seq_num != expected_seq_num:
+                                send_NACK(self.config, s, addr[0], addr[1], seq_num, seq_num + 1)
+
 
             except socket.timeout:
                 if time.time() - last_received_time > self.config.KEEP_ALIVE_INTERVAL:
@@ -145,7 +154,7 @@ class Connection:
                     break
                 continue
             except Exception as e:
-                print(f"Error: {e}")
+                print(f"Error in receive: {e}")
                 continue
 
     def connect(self, src_ip, dest_ip, peer1_port, peer2_port):
@@ -184,15 +193,14 @@ class Connection:
             while self.running:
                 data = input(f"User {peer1_port}: ")
 
-                if data.lower() == '!q':
+                if data.lower() == '!f':
                     send_FIN(self.config, s, dest_ip, peer2_port, seq_num, seq_num + 1)
                     print(f"Connection closed by User {peer1_port}.")
                     self.running = False
                     break
-                elif data.lower() == '!r':
-                    send_RST(self.config, s, dest_ip, peer2_port, seq_num, seq_num + 1)
-                    print(f"Trying to reset connection by User {peer1_port}.")
-                    self.connection_state_out = self.config.STATE_OUT_SYN_SENT
+                elif data.lower() == '!err':
+                    self.error = True
+                    print("Error mode enabled!!")
                     break
                 elif data.lower() == '!ef':
                     while True:
@@ -218,13 +226,15 @@ class Connection:
                                 full_data = file_name + b'\x00' + file_data
 
                                 self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
-                                self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, full_data)
+                                fragment, seq = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, full_data)
+                                self.unacknowledged_fragments = seq, fragment
                                 break
                         except FileNotFoundError:
                             print("File not found!")
                 else:
                     self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
-                    self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, data.encode('utf-8'))
+                    fragment, seq = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, data.encode('utf-8'))
+                    self.unacknowledged_fragments = seq,fragment
         finally:
             if not self.socket_closed:
                 if self.keep_alive_timer is not None:
