@@ -56,12 +56,14 @@ class Fragmentation:
             print("Sending multiple fragments")
 
             # Send fragments and add into buffer_non_ack
-            print(f"Total fragments: {fragments}")
-            for i, fragment in enumerate(fragments):
+           # print(f"Total fragments: {fragments}")
+
+            for fragment in fragments:
                 header = create_header(self.config, seq_num, ack_num, flag, window_size, 0, total_fragments,0)
                 s.sendto(header + fragment, (dest_ip, dest_port))
                 print(f"Sent fragment {seq_num} / {total_fragments}")
                 buffer_non_ack[seq_num] = fragment
                 seq_num += 1
+                flag = 0
             return [(fragment, seq) for seq, fragment in buffer_non_ack.items()]
 

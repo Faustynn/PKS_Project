@@ -4,7 +4,7 @@ import threading
 import time
 import os
 
-from classes.header import calculate_checksum,create_header
+from classes.header import calculate_checksum, create_header
 from classes.keep_alive import send_keep_alive
 from classes.hand_shake import send_SYN, send_ACK, send_FIN, send_NACK, send_SYN_ACK
 from classes.fragmentation import Fragmentation
@@ -25,6 +25,7 @@ class Connection:
         self.fragments_buffer = {}
         self.unacknowledged_fragments = {}
         self.total_fragments = None
+        self.send_event = threading.Event()
 
     def receive_messages(self, s):
         last_received_time = time.time()
@@ -38,9 +39,9 @@ class Connection:
                 header = data[:self.config.HEADER_SIZE]
                 payload = data[self.config.HEADER_SIZE:]
 
-                seq_num, ack_num, header_len, flags, window, recv_checksum, total_fragments,reserved = struct.unpack(self.config.HEADER_FORMAT, header)
+                seq_num, ack_num, header_len, flags, window, recv_checksum, total_fragments, reserved = struct.unpack(self.config.HEADER_FORMAT, header)
 
-                header_for_checksum = struct.pack(self.config.HEADER_FORMAT, seq_num, ack_num, header_len, flags, self.config.WINDOW_SIZE, 0,total_fragments, 0)
+                header_for_checksum = struct.pack(self.config.HEADER_FORMAT, seq_num, ack_num, header_len, flags, self.config.WINDOW_SIZE, 0, total_fragments, 0)
                 calculated_checksum = calculate_checksum(header_for_checksum)
 
                 self.total_fragments = total_fragments
@@ -51,12 +52,12 @@ class Connection:
                     recv_checksum = 0
 
                 if recv_checksum != calculated_checksum:
-                    print(f"Checksums dont match! {recv_checksum} != {calculated_checksum}")
+                    print(f"Checksums don't match! {recv_checksum} != {calculated_checksum}")
                     send_NACK(self.config, s, addr[0], addr[1], seq_num)
+                    self.total_fragments = total_fragments
                     continue
 
                 with self.state_lock:
-
                     if flags == self.config.FLAGS_SYN:
                         if self.connection_state_in == self.config.STATE_IN_LISTEN:
                             if self.config.DEBUG:
@@ -79,29 +80,28 @@ class Connection:
                             self.connection_state_in = self.config.STATE_IN_ESTABLISHED
                             self.connection_event.set()
                         else:
-                          #  print(f"ACK debug: {self.unacknowledged_fragments}")
+                            print(f"!!{seq_num} a {self.unacknowledged_fragments}!!")
+                            for seq, data in self.unacknowledged_fragments.items():
+                                if seq_num == seq:
+                                    del self.unacknowledged_fragments[seq]
+                                    print(f"ACK received for fragment {seq_num}")
+                                    self.send_event.set()  # Allow sending the next fragment
 
-                            if seq_num in self.unacknowledged_fragments:
-                                del self.unacknowledged_fragments[seq_num]
-                                print(f"ACK received for fragment {seq_num}")
+                                    break
                             else:
                                 print(f"Error ACK from {addr}")
+                                continue
 
                     elif flags == self.config.FLAGS_NACK:
                         if self.config.DEBUG:
                             print(f"Received NACK from {addr}. Resending fragment {seq_num}")
 
-                        # Проверка наличия фрагмента в буфере неполученных фрагментов
                         if seq_num in self.unacknowledged_fragments:
                             fragment = self.unacknowledged_fragments[seq_num]
-
-                            # Создание заголовка и повторная отправка фрагмента
-                            header = create_header(self.config, seq_num, ack_num, 0, self.config.WINDOW_SIZE, 0,
-                                                   self.total_fragments, 0)
+                            header = create_header(self.config, seq_num, ack_num, 0, self.config.WINDOW_SIZE, 0, self.total_fragments, 0)
                             time.sleep(1)
                             print(f"Data: {header + fragment}")
                             s.sendto(header + fragment, (addr[0], addr[1]))
-
                             print(f"Resent fragment {seq_num} with payload {fragment}")
                         else:
                             print(f"Received NACK for fragment {seq_num}, but fragment not found in buffer!")
@@ -129,42 +129,40 @@ class Connection:
                         print(f"Payload: {payload} from {addr}")
 
                         if payload:
-                            # Отправляем ACK для полученного фрагмента
-                            send_ACK(self.config, s, addr[0], addr[1], seq_num, seq_num + 1)
+                            send_ACK(self.config, s, addr[0], addr[1], seq_num, ack_num + 1)
                             print(f"ACK sent for fragment {seq_num}")
 
+                            # Проверяем, если номер текущего фрагмента не превышает общее количество
                             if seq_num <= self.total_fragments:
                                 self.fragments_buffer[seq_num] = payload
                                 print(f"Received fragment {seq_num} / {self.total_fragments}")
+                                print(f"Buffer: {self.fragments_buffer}")
 
+                                # Если количество уникальных ключей в буфере равно общему числу фрагментов
                                 if len(self.fragments_buffer) == self.total_fragments:
-                                    assembled_message = b''.join(self.fragments_buffer.values())
+                                    # Сортируем фрагменты по ключу (номеру фрагмента) и объединяем их
+                                    assembled_message = b''.join(
+                                        self.fragments_buffer[key] for key in sorted(self.fragments_buffer))
                                     self.fragments_buffer.clear()
-                                else:
-                                    continue
 
-                                # Process file
-                                if b'\x00' in assembled_message and addr not in file_names:
-                                    file_name, file_data = assembled_message.split(b'\x00', 1)
-                                    file_names[addr] = file_name.decode('utf-8')
+                                    # Проверка на разделитель для файлов
+                                    if b'\x00' in assembled_message and addr not in file_names:
+                                        file_name, file_data = assembled_message.split(b'\x00', 1)
+                                        file_names[addr] = file_name.decode('utf-8')
 
-                                    with open(os.path.join(self.config.SAVE_DIR, file_names[addr]), 'wb') as file:
-                                        file.write(file_data)
+                                        with open(os.path.join(self.config.SAVE_DIR, file_names[addr]), 'wb') as file:
+                                            file.write(file_data)
 
-                                    print(f"File {file_names[addr]} received from User {addr[1]}")
-                                    del file_names[addr]
+                                        print(f"File {file_names[addr]} received from User {addr[1]}")
+                                        del file_names[addr]
 
-
-                                # Process text message
-                                else:
-                                    try:
-                                        message = assembled_message.decode('utf-8')
-                                        print(f"\nMessage from User {addr[1]}: {message}")
-                                        print(f"User {s.getsockname()[1]}: ", end='',
-                                              flush=True)  # Restore input prompt
-                                    except UnicodeDecodeError:
-                                        print(f"Error decoding message from User {addr[1]}")
-
+                                    else:
+                                        try:
+                                            message = assembled_message.decode('utf-8')
+                                            print(f"\nMessage from User {addr[1]}: {message}")
+                                            print(f"User {s.getsockname()[1]}: ", end='', flush=True)
+                                        except UnicodeDecodeError:
+                                            print(f"Error decoding message from User {addr[1]}")
 
 
             except socket.timeout:
@@ -250,15 +248,24 @@ class Connection:
                                 self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
 
                                 if not self.error:
-                                    fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,full_data)
+                                    fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, full_data)
                                 else:
-                                    fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,full_data, True)
+                                    fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, full_data, True)
                                     self.error = False
 
                                 for fragment in fragments:
-                                    if isinstance(fragment, tuple) and len(fragment) == 2:
+                                    if isinstance(fragment, tuple):
                                         fragment_data, seq = fragment
-                                        self.unacknowledged_fragments[seq] = fragment_data
+
+                                        for seq, data in self.unacknowledged_fragments.items():
+                                            self.unacknowledged_fragments[seq] = fragment_data
+
+                                        print('!!')
+                                        print(self.unacknowledged_fragments)
+                                        print('!!')
+
+                                        self.send_event.clear()
+                                        self.send_event.wait()  # Ждем подтверждения перед отправкой следующего фрагмента
                                     else:
                                         print(f"Unexpected fragment structure: {fragment}")
 
@@ -267,19 +274,20 @@ class Connection:
                 else:
                     self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
                     if not self.error:
-                        fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,
-                                                               data.encode('utf-8'))
+                        fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, data.encode('utf-8'))
                     else:
-                        fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,
-                                                               data.encode('utf-8'), True)
+                        fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num, data.encode('utf-8'), True)
                         self.error = False
 
+                    print(f"FRAGMENTS: {fragments}")
                     for fragment in fragments:
-                        if isinstance(fragment, tuple) and len(fragment) == 2:
-                            fragment_data, seq = fragment
-                            self.unacknowledged_fragments[seq] = fragment_data
-                        else:
-                            print(f"Unexpected fragment structure: {fragment}")
+                        fragment_data, seq = fragment
+                        self.unacknowledged_fragments[seq] = fragment_data
+
+                        print('!!!!!')
+                        print(self.unacknowledged_fragments[seq])
+                        print('!!!!')
+
 
         finally:
             if not self.socket_closed:
@@ -292,4 +300,3 @@ class Connection:
                     s.close()
                     self.socket_closed = True
             print("Stopping connection.")
-
