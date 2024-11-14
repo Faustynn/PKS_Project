@@ -3,6 +3,7 @@ import struct
 import threading
 import time
 import os
+from time import perf_counter
 
 from classes.header import calculate_checksum
 from classes.keep_alive import send_keep_alive
@@ -22,12 +23,12 @@ class Connection:
         self.error = False
         self.fragment_size = 1500 - int(config.HEADER_SIZE)
         self.fragmenter = Fragmentation(self.fragment_size, config.HEADER_SIZE, config)
+        self.fragments_buffer = {}
 
     def receive_messages(self, s):
         last_received_time = time.time()
-        fragments_buffer = {}
         file_names = {}
-        expected_seq_num = 0
+        expected_seq_num = 1
 
 
         while self.running:
@@ -37,8 +38,6 @@ class Connection:
 
                 header = data[:self.config.HEADER_SIZE]
                 payload = data[self.config.HEADER_SIZE:]
-
-                print(f"Received {header} from {addr}")
 
                 seq_num, ack_num, header_len, flags, window, recv_checksum, reserved = struct.unpack(self.config.HEADER_FORMAT, header)
 
@@ -107,13 +106,15 @@ class Connection:
                             print(f"ACK sent for fragment {seq_num}")
 
                             # Сохраняем фрагмент в буфер
-                            if addr not in fragments_buffer:
-                                fragments_buffer[addr] = {}
-                            fragments_buffer[addr][seq_num] = payload
+                            if addr not in self.fragments_buffer:
+                                self.fragments_buffer[addr] = {}
+                            self.fragments_buffer[addr][seq_num] = payload
 
                             # Проверяем, можем ли собрать сообщение
-                            while expected_seq_num in fragments_buffer[addr]:
-                                current_payload = fragments_buffer[addr][expected_seq_num]
+                            print(f"Expected: {expected_seq_num}")
+                            print(f"Buffer: {self.fragments_buffer[addr]}")
+                            while expected_seq_num in self.fragments_buffer[addr]:
+                                current_payload = self.fragments_buffer[addr][expected_seq_num]
 
                                 # Обработка файла
                                 if b'\x00' in current_payload and addr not in file_names:
@@ -126,7 +127,6 @@ class Connection:
 
                                 # Обработка текстового сообщения
                                 else:
-                                    print("NAZDAR1 TEST")
                                     try:
                                         message = current_payload.decode('utf-8')
                                         print(f"\nMessage from User {addr[1]}: {message}")
@@ -135,7 +135,7 @@ class Connection:
                                     except UnicodeDecodeError:
                                         print(f"Error decoding message from User {addr[1]}")
 
-                                del fragments_buffer[addr][expected_seq_num]
+                                del self.fragments_buffer[addr][expected_seq_num]
                                 expected_seq_num += 1
 
             except socket.timeout:

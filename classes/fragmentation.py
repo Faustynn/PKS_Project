@@ -26,7 +26,8 @@ class Fragmentation:
     def send_fragments(self, s, dest_ip, dest_port, initial_seq_num, ack_num, data):
         fragments = self.fragment_data(data)
         total_fragments = len(fragments)
-        window_start = 0
+     #   print(f"!!!!!!Total fragments: {total_fragments}")
+        window_start = 1
         window_size = self.config.WINDOW_SIZE
         unacked_fragments = {}  # Buffer for unacknowledged fragments
 
@@ -73,29 +74,29 @@ class Fragmentation:
             s.sendto(header + fragment, (dest_ip, dest_port))
             print(f"Sent fragment {seq_num}")
             return
+        else:
+            print("Sending multiple fragments")
 
-        while window_start < total_fragments:
-            # Send fragments within the window
-            while seq_num < min(window_start + window_size, total_fragments):
-                if seq_num not in unacked_fragments:
-                    fragment = fragments[seq_num]
-                    header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, 0)
-                    s.sendto(header + fragment, (dest_ip, dest_port))
-                    unacked_fragments[seq_num] = fragment
-                    print(f"Sent fragment {seq_num}")
-                    seq_num += 1
+            while window_start <= total_fragments:
+                while seq_num < window_start + window_size and seq_num < total_fragments:
+                    if seq_num not in unacked_fragments:
+                        fragment = fragments[seq_num-1]
+                        header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, 0)
+                        s.sendto(header + fragment, (dest_ip, dest_port))
+                        unacked_fragments[seq_num] = fragment
+                        print(f"Sent fragment {seq_num}")
+                        seq_num += 1
 
-            # Wait for at least one fragment to be acknowledged or timeout
-            ack_received.wait(self.config.TIMEOUT)
-            ack_received.clear()
+                # Wait for at least one fragment to be acknowledged or timeout
+                ack_received.wait(self.config.TIMEOUT)
+                ack_received.clear()
 
-            # Slide the window
-            while window_start < total_fragments and window_start not in unacked_fragments:
-                window_start += 1
+                # Slide the window
+                while window_start < total_fragments and window_start not in unacked_fragments:
+                    window_start += 1
 
-        # Wait for all fragments to be acknowledged
-        while len(unacked_fragments) > 0:
-            ack_received.wait(self.config.TIMEOUT)
-            ack_received.clear()
-
-        print("All fragments sent and acknowledged")
+            # Wait for all fragments to be acknowledged
+            while len(unacked_fragments) > 0:
+                ack_received.wait(self.config.TIMEOUT)
+                ack_received.clear()
+                print("All fragments sent and acknowledged")
