@@ -26,7 +26,7 @@ class Config:
         self.FLAGS_SYN_ACK = self.config.getint('FLAGS', 'SYN_ACK')
         self.FLAGS_FIN = self.config.getint('FLAGS', 'FIN')
         self.FLAGS_RST = self.config.getint('FLAGS', 'RST')
-        self.FLAGS_RESERVED_FOR_FUTURE_USE = self.config.getint('FLAGS', 'RESERVED_FOR_FUTURE_USE')
+        self.ERROR = self.config.getint('FLAGS', 'ERROR')
 
 
         self.STATE_OUT_DISCONNECTED = self.config.getint('STATES', 'STATE_OUT_DISCONNECTED')

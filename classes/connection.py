@@ -6,7 +6,7 @@ import os
 
 from classes.header import calculate_checksum,create_header
 from classes.keep_alive import send_keep_alive
-from classes.hand_shake import send_SYN, send_ACK, send_FIN, send_RST, send_NACK, send_SYN_ACK
+from classes.hand_shake import send_SYN, send_ACK, send_FIN, send_NACK, send_SYN_ACK
 from classes.fragmentation import Fragmentation
 
 class Connection:
@@ -30,7 +30,6 @@ class Connection:
         last_received_time = time.time()
         file_names = {}
 
-
         while self.running:
             try:
                 data, addr = s.recvfrom(self.config.MAX_UDP_SIZE)
@@ -45,16 +44,19 @@ class Connection:
                 calculated_checksum = calculate_checksum(header_for_checksum)
 
                 self.total_fragments = total_fragments
-                if self.error:
-                    calculated_checksum = 0
-                    self.error = False
+
+                if flags != 1:
+                    print(f"Received: {data} a {flags}")
+                if flags == 8:
+                    recv_checksum = 0
 
                 if recv_checksum != calculated_checksum:
                     print(f"Checksums dont match! {recv_checksum} != {calculated_checksum}")
-                    send_NACK(self.config, s, addr[0], addr[1], seq_num, seq_num + 1)
+                    send_NACK(self.config, s, addr[0], addr[1], seq_num)
                     continue
 
                 with self.state_lock:
+
                     if flags == self.config.FLAGS_SYN:
                         if self.connection_state_in == self.config.STATE_IN_LISTEN:
                             if self.config.DEBUG:
@@ -77,7 +79,7 @@ class Connection:
                             self.connection_state_in = self.config.STATE_IN_ESTABLISHED
                             self.connection_event.set()
                         else:
-                            print(f"ACK debug: {self.unacknowledged_fragments}")
+                          #  print(f"ACK debug: {self.unacknowledged_fragments}")
 
                             if seq_num in self.unacknowledged_fragments:
                                 del self.unacknowledged_fragments[seq_num]
@@ -88,15 +90,21 @@ class Connection:
                     elif flags == self.config.FLAGS_NACK:
                         if self.config.DEBUG:
                             print(f"Received NACK from {addr}. Resending fragment {seq_num}")
+
+                        # Проверка наличия фрагмента в буфере неполученных фрагментов
                         if seq_num in self.unacknowledged_fragments:
                             fragment = self.unacknowledged_fragments[seq_num]
 
-                            header = create_header(self.config, seq_num, ack_num, 0, self.config.WINDOW_SIZE, 0, 0)
+                            # Создание заголовка и повторная отправка фрагмента
+                            header = create_header(self.config, seq_num, ack_num, 0, self.config.WINDOW_SIZE, 0,
+                                                   self.total_fragments, 0)
+                            time.sleep(1)
+                            print(f"Data: {header + fragment}")
                             s.sendto(header + fragment, (addr[0], addr[1]))
 
-                            print(f"Resent fragment {seq_num}")
+                            print(f"Resent fragment {seq_num} with payload {fragment}")
                         else:
-                            print(f"Received NACK from {addr} but fragment {seq_num} not found in buff!")
+                            print(f"Received NACK for fragment {seq_num}, but fragment not found in buffer!")
 
                     elif flags == self.config.FLAGS_FIN:
                         print(f"FIN received from {addr}. Sending FIN-ACK...")
@@ -203,16 +211,18 @@ class Connection:
 
         try:
             while self.running:
-                data = input(f"User {peer1_port}: ")
+                data = input(f"User{peer1_port}: ")
 
                 if data.lower() == '!f':
                     send_FIN(self.config, s, dest_ip, peer2_port, seq_num, seq_num + 1)
                     print(f"Connection closed by User {peer1_port}.")
                     self.running = False
                     break
+
                 elif data.lower() == '!err':
                     self.error = True
                     print("Error mode enabled!!")
+
                 elif data.lower() == '!ef':
                     while True:
                         try:
@@ -226,6 +236,7 @@ class Connection:
                         except ValueError:
                             print("Write correct fragment size!")
                     self.fragment_size = max_fragment_size
+
                 elif data.lower() == '!file':
                     while True:
                         try:
@@ -237,7 +248,12 @@ class Connection:
                                 full_data = file_name + b'\x00' + file_data
 
                                 self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
-                                fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,full_data)
+
+                                if not self.error:
+                                    fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,full_data)
+                                else:
+                                    fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,full_data, True)
+                                    self.error = False
 
                                 for fragment in fragments:
                                     if isinstance(fragment, tuple) and len(fragment) == 2:
@@ -250,8 +266,13 @@ class Connection:
                             print("File not found!")
                 else:
                     self.fragmenter = Fragmentation(self.fragment_size, self.config.HEADER_SIZE, self.config)
-                    fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,
+                    if not self.error:
+                        fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,
                                                                data.encode('utf-8'))
+                    else:
+                        fragments = self.fragmenter.send_fragments(s, dest_ip, peer2_port, seq_num, ack_num,
+                                                               data.encode('utf-8'), True)
+                        self.error = False
 
                     for fragment in fragments:
                         if isinstance(fragment, tuple) and len(fragment) == 2:

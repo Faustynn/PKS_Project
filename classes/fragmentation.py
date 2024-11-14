@@ -1,3 +1,4 @@
+
 from classes.header import create_header
 
 class Fragmentation:
@@ -19,19 +20,24 @@ class Fragmentation:
 
         return fragments
 
-    def send_fragments(self, s, dest_ip, dest_port, initial_seq_num, ack_num, data):
+    def send_fragments(self, s, dest_ip, dest_port, initial_seq_num, ack_num, data,error=False):
         fragments = self.fragment_data(data)
         total_fragments = len(fragments)
         seq_num = initial_seq_num
         window_size = self.config.WINDOW_SIZE
         buffer_non_ack = {}
 
+        if error:
+            flag = 8
+        else:
+            flag = 0
+
         if buffer_non_ack:
             print(f"Resent fragment {seq_num}")
 
             # Resend fragments that in a buffer
             for seq_num, fragment in buffer_non_ack.items():
-                header = create_header(self.config, seq_num, ack_num, 0, window_size, 0,total_fragments, 0)
+                header = create_header(self.config, seq_num, ack_num, flag, window_size, 0,total_fragments, 0)
                 s.sendto(header + fragment, (dest_ip, dest_port))
                 buffer_non_ack.pop(seq_num)
             return buffer_non_ack
@@ -41,7 +47,7 @@ class Fragmentation:
 
             # Send the single fragment directly
             fragment = fragments[0]
-            header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, total_fragments,0)
+            header = create_header(self.config, seq_num, ack_num, flag, window_size, 0, total_fragments,0)
             s.sendto(header + fragment, (dest_ip, dest_port))
             print(f"Sent fragment {seq_num}")
             buffer_non_ack[seq_num] = fragment
@@ -52,7 +58,7 @@ class Fragmentation:
             # Send fragments and add into buffer_non_ack
             print(f"Total fragments: {fragments}")
             for i, fragment in enumerate(fragments):
-                header = create_header(self.config, seq_num, ack_num, 0, window_size, 0, total_fragments,0)
+                header = create_header(self.config, seq_num, ack_num, flag, window_size, 0, total_fragments,0)
                 s.sendto(header + fragment, (dest_ip, dest_port))
                 print(f"Sent fragment {seq_num} / {total_fragments}")
                 buffer_non_ack[seq_num] = fragment
