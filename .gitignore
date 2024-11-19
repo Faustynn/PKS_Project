@@ -3,5 +3,5 @@
 .DS_Store
 env
 logs/*
-classes/__pycache__
-test_files
+*.log
+received_files/*
