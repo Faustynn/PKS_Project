@@ -6,7 +6,7 @@ from typing import Set, Dict
 import struct
 
 import controlThread
-from blackBox import blackBox, sendMSG, ReceiverWindow, lastMessageCorrupted,window_manager, handle_nak
+from window_manager import manager, sendMSG, ReceiverWindow, lastMessageCorrupted,window_manager, handle_nak
 
 SIZE = 8
 bigMessageBuffer = []
@@ -74,7 +74,7 @@ class FileTransferState:
         self.file.close()
         return True
 def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_state: FileTransferState = None):
-    checksum = blackBox.calculate_checksum(parsedMessage['payload'])
+    checksum = manager.calculate_checksum(parsedMessage['payload'])
     current_time = time.time()
 
     if parsedMessage['flags'] == 1:  # Filename
@@ -82,8 +82,8 @@ def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_st
             filename = parsedMessage['payload'].decode('utf-8')
             file_transfer_state = FileTransferState(filename)
             print(f"Receiving file: {filename}")
-            ack_message = blackBox(5, flags=1, fragmentSeq=parsedMessage['fragmentSeq'],
-                                   timestamp=parsedMessage["timeStamp"])
+            ack_message = manager(5, flags=1, fragmentSeq=parsedMessage['fragmentSeq'],
+                                  timestamp=parsedMessage["timeStamp"])
             sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
             return file_transfer_state
 
@@ -91,8 +91,8 @@ def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_st
         if checksum == int.from_bytes(parsedMessage['checksum'], byteorder='big'):
             file_size = int(parsedMessage['payload'].decode('utf-8'))
             print(f"File size: {file_size}")
-            ack_message = blackBox(5, flags=1, fragmentSeq=parsedMessage['fragmentSeq'],
-                                   timestamp=parsedMessage["timeStamp"])
+            ack_message = manager(5, flags=1, fragmentSeq=parsedMessage['fragmentSeq'],
+                                  timestamp=parsedMessage["timeStamp"])
             sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
             if file_transfer_state:
                 file_transfer_state.file_size = file_size
@@ -103,8 +103,8 @@ def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_st
             print(f"Expected fragments: {fragment_count}")
             if file_transfer_state:
                 file_transfer_state.initialize_file(file_transfer_state.file_size, fragment_count)
-            ack_message = blackBox(5, flags=1, fragmentSeq=parsedMessage['fragmentSeq'],
-                                   timestamp=parsedMessage["timeStamp"])
+            ack_message = manager(5, flags=1, fragmentSeq=parsedMessage['fragmentSeq'],
+                                  timestamp=parsedMessage["timeStamp"])
             sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
 
     elif parsedMessage['flags'] == 4:  # File fragment
@@ -113,8 +113,8 @@ def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_st
 
             if file_transfer_state and file_transfer_state.process_fragment(fragment_num, parsedMessage['payload']):
                 print(f"Received fragment {fragment_num}")
-                ack_message = blackBox(5, flags=1, fragmentSeq=fragment_num,
-                                       timestamp=parsedMessage["timeStamp"])
+                ack_message = manager(5, flags=1, fragmentSeq=fragment_num,
+                                      timestamp=parsedMessage["timeStamp"])
                 sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
 
                 # Check for missing fragments
@@ -122,8 +122,8 @@ def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_st
                     for missing_fragment in list(file_transfer_state.missing_fragments):
                         if file_transfer_state.can_request_fragment(missing_fragment, current_time):
                             print(f"Requesting missing fragment {missing_fragment}")
-                            request_message = blackBox(4, flags=6, fragmentSeq=missing_fragment,
-                                                       timestamp=parsedMessage["timeStamp"])
+                            request_message = manager(4, flags=6, fragmentSeq=missing_fragment,
+                                                      timestamp=parsedMessage["timeStamp"])
                             sendMSG(sock, request_message, ip, responsePort, storeMessage=False)
                             file_transfer_state.record_fragment_request(missing_fragment, current_time)
 
@@ -139,8 +139,8 @@ def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_st
                 print(f"File transfer progress: {progress:.2f}%")
         else:
             print(f"Checksum mismatch for fragment {parsedMessage['fragmentSeq']}")
-            nak_message = blackBox(5, flags=2, fragmentSeq=parsedMessage['fragmentSeq'],
-                                   timestamp=parsedMessage["timeStamp"])
+            nak_message = manager(5, flags=2, fragmentSeq=parsedMessage['fragmentSeq'],
+                                  timestamp=parsedMessage["timeStamp"])
             sendMSG(sock, nak_message, ip, responsePort, storeMessage=False)
 
     return file_transfer_state
@@ -150,7 +150,7 @@ def handle_text_message(parsedMessage, sock, ip, responsePort, receiver_window, 
     message_id = parsedMessage["timeStamp"]
 
     # Create test message with same parameters but without checksum
-    test_message = blackBox(
+    test_message = manager(
         msgType=parsedMessage['msgType'],
         flags=parsedMessage['flags'],
         payload=parsedMessage['payload'],
@@ -171,7 +171,7 @@ def handle_text_message(parsedMessage, sock, ip, responsePort, receiver_window, 
             if wait_checksum == received_checksum:
                 # Send acknowledgment for verified message
                 print(f"Message verified. Sending ACK for packet {seq_num}")
-                ack_message = blackBox(5, flags=1, fragmentSeq=seq_num, timestamp=message_id)
+                ack_message = manager(5, flags=1, fragmentSeq=seq_num, timestamp=message_id)
                 sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
                 print(f"{addr} Sent a message: {parsedMessage['payload'].decode('utf-8')}")
 
@@ -179,7 +179,7 @@ def handle_text_message(parsedMessage, sock, ip, responsePort, receiver_window, 
                 receiver_window.receive_packet(seq_num, parsedMessage['payload'])
             else:
                 print(f"Checksum mismatch for packet {seq_num}, sending NAK")
-                nak_message = blackBox(5, flags=2, fragmentSeq=seq_num, timestamp=message_id)
+                nak_message = manager(5, flags=2, fragmentSeq=seq_num, timestamp=message_id)
                 sendMSG(sock, nak_message, ip, responsePort, storeMessage=False)
 
     # Start of fragmented message
@@ -211,7 +211,7 @@ def handle_text_message(parsedMessage, sock, ip, responsePort, receiver_window, 
                     print(f"Fragment {extracted_j} received and verified")
 
                 # Send acknowledgment
-                ack_message = blackBox(5, flags=1, fragmentSeq=seq_num, timestamp=message_id)
+                ack_message = manager(5, flags=1, fragmentSeq=seq_num, timestamp=message_id)
                 sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
 
                 # Check if message is complete
@@ -223,7 +223,7 @@ def handle_text_message(parsedMessage, sock, ip, responsePort, receiver_window, 
                 print(f"Fragment index {extracted_j} out of range")
         else:
             print(f"Checksum mismatch for fragment {extracted_j}, sending NAK")
-            nak_message = blackBox(5, flags=2, fragmentSeq=seq_num, timestamp=message_id)
+            nak_message = manager(5, flags=2, fragmentSeq=seq_num, timestamp=message_id)
             sendMSG(sock, nak_message, ip, responsePort, storeMessage=False)
 
 def receivePacket(ip: str, listenPort: int, responsePort: int):
@@ -239,7 +239,7 @@ def receivePacket(ip: str, listenPort: int, responsePort: int):
     while True:
         try:
             data, addr = sock.recvfrom(1500)
-            message = blackBox.fromMessageBytes(data)
+            message = manager.fromMessageBytes(data)
             parsedMessage = message.parse()
 
             if receiver_window is None:
@@ -248,7 +248,7 @@ def receivePacket(ip: str, listenPort: int, responsePort: int):
 
             if lastMessageCorrupted:
                 print(f"Message corrupted, requesting resend")
-                nak_message = blackBox(5, flags=2, timestamp=parsedMessage["timeStamp"])
+                nak_message = manager(5, flags=2, timestamp=parsedMessage["timeStamp"])
                 sendMSG(sock, nak_message, ip, responsePort, storeMessage=False)
                 continue
 
@@ -257,19 +257,19 @@ def receivePacket(ip: str, listenPort: int, responsePort: int):
                 with controlThread.connection_lock:
                     if parsedMessage['flags'] == 2:
                         controlThread.hasConnectionToPeer = True
-                        response = blackBox(1, flags=3)
+                        response = manager(1, flags=3)
                         sendMSG(sock, response, ip, responsePort)
                         print(f"A peer has connected: {addr}")
                         receiver_window = ReceiverWindow(8)
                     elif parsedMessage['flags'] == 3:
                         controlThread.hasConnectionToPeer = True
                     elif parsedMessage['flags'] == 4:
-                        response = blackBox(1, flags=5)
+                        response = manager(1, flags=5)
                         sendMSG(sock, response, ip, responsePort)
                     elif parsedMessage['flags'] == 5:
                         controlThread.expectingResponse = False
                     elif parsedMessage['flags'] == 8:
-                        response = blackBox(1, flags=9)
+                        response = manager(1, flags=9)
                         sendMSG(sock, response, ip, responsePort)
                         controlThread.hasConnectionToPeer = False
                         controlThread.expectingResponse = False

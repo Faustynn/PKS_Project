@@ -1,14 +1,8 @@
 import threading
-from blackBox import getIpAddress
+from window_manager import getIpAddress
 from sendThread import sendPacket
 from receiveThread import receivePacket
 from controlThread import sendControlPacket
-
-# ERR handling,view checksum in text+file
-# ERR handling if fragment dont resive
-# send all types file
-# check keep alive
-
 
 if __name__ == "__main__":
     targetIp = input("Enter the target IP: ")

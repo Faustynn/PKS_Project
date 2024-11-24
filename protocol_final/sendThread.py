@@ -3,7 +3,7 @@ import time
 import threading
 import random
 import os
-from blackBox import blackBox, sendMSG, WINDOW_SIZE, SenderWindow, Packet, MAX_SEQ_NUM, TIMEOUT, window_manager
+from window_manager import manager, sendMSG, WINDOW_SIZE, SenderWindow, Packet, MAX_SEQ_NUM, TIMEOUT, window_manager
 import controlThread
 
 fragMaxLen = 1500 - 6
@@ -27,7 +27,7 @@ def check_timeouts(sock, ip, port):
                         continue
 
                     if current_time - packet.send_time > TIMEOUT:
-                        message = blackBox.fromMessageBytes(packet.payload)
+                        message = manager.fromMessageBytes(packet.payload)
                         # Resend packet
                         print(f"Resending packet {seq_num} due to timeout")
                         sendMSG(sock, message, ip, port)
@@ -39,8 +39,8 @@ def send_file(sock, filepath, ip, port, fragMaxLen=1500 - 6, corrupt=None, windo
     try:
         with open(filepath, 'rb') as file:
             filename = os.path.basename(filepath)
-            filename_msg = blackBox(4, flags=1, payload=filename.encode('utf-8'),
-                                    checksum=blackBox.calculate_checksum(filename.encode('utf-8')))
+            filename_msg = manager(4, flags=1, payload=filename.encode('utf-8'),
+                                   checksum=manager.calculate_checksum(filename.encode('utf-8')))
             print(f"Sending file: {filename}")
             sendMSG(sock, filename_msg, ip, port)
 
@@ -50,8 +50,8 @@ def send_file(sock, filepath, ip, port, fragMaxLen=1500 - 6, corrupt=None, windo
             file_content = file.read()
             file_size = len(file_content)
 
-            size_msg = blackBox(4, flags=2, payload=str(file_size).encode('utf-8'),
-                                checksum=blackBox.calculate_checksum(str(file_size).encode('utf-8')))
+            size_msg = manager(4, flags=2, payload=str(file_size).encode('utf-8'),
+                               checksum=manager.calculate_checksum(str(file_size).encode('utf-8')))
             print(f"Sending file size: {file_size}")
             sendMSG(sock, size_msg, ip, port)
 
@@ -66,8 +66,8 @@ def send_file(sock, filepath, ip, port, fragMaxLen=1500 - 6, corrupt=None, windo
                 corrupt_fragment = random.randint(0, len(fragments) - 1)
                 print(f"Selected fragment {corrupt_fragment} for corruption")
 
-            fragments_count_msg = blackBox(4, flags=3, payload=str(len(fragments)).encode('utf-8'),
-                                           checksum=blackBox.calculate_checksum(str(len(fragments)).encode('utf-8')))
+            fragments_count_msg = manager(4, flags=3, payload=str(len(fragments)).encode('utf-8'),
+                                          checksum=manager.calculate_checksum(str(len(fragments)).encode('utf-8')))
             print(f"Sending file fragments count: {len(fragments)}")
             sendMSG(sock, fragments_count_msg, ip, port)
 
@@ -96,8 +96,8 @@ def send_file(sock, filepath, ip, port, fragMaxLen=1500 - 6, corrupt=None, windo
                         seq_num = window_manager.sender_window.next_seq_num
 
                         # Create packet
-                        message = blackBox(4, flags=4, fragmentSeq=seq_num, payload=fragments[i],
-                                           checksum=blackBox.calculate_checksum(fragments[i]))
+                        message = manager(4, flags=4, fragmentSeq=seq_num, payload=fragments[i],
+                                          checksum=manager.calculate_checksum(fragments[i]))
 
                         # Determine if this fragment should be corrupted
                         should_corrupt = (corrupt and
@@ -150,7 +150,7 @@ def send_file(sock, filepath, ip, port, fragMaxLen=1500 - 6, corrupt=None, windo
                                 f"Timeout for fragment {fragment_index}, attempt {retransmission_count[fragment_index]}")
 
                             # Resend packet
-                            message = blackBox.fromMessageBytes(packet.payload)
+                            message = manager.fromMessageBytes(packet.payload)
                             sendMSG(sock, message, ip, port)
                             packet.send_time = current_time
 
@@ -184,7 +184,7 @@ def send_corrupt_message(sock, message_text, ip, port, window_manager):
             seq_num = window_manager.sender_window.next_seq_num
 
             # Create corrupted message with invalid checksum
-            message = blackBox(2, flags=1, payload=fragments[0], fragmentSeq=seq_num)
+            message = manager(2, flags=1, payload=fragments[0], fragmentSeq=seq_num)
             window_manager.sender_window.add_packet(Packet(seq_num, message.bytes, time.time()))
             # Send corrupted version
             sendMSG(sock, message, ip, port, sendBadMessage=True)
@@ -203,7 +203,7 @@ def send_corrupt_message(sock, message_text, ip, port, window_manager):
     else:
         # Handle multi-fragment messages similarly to normal messages but corrupt one fragment
         message_id = get_new_message_id()
-        message = blackBox(3, flags=2, fragmentSeq=len(fragments), timestamp=message_id)
+        message = manager(3, flags=2, fragmentSeq=len(fragments), timestamp=message_id)
         sendMSG(sock, message, ip, port)
 
         corrupt_fragment = random.randint(0, len(fragments) - 1)
@@ -216,9 +216,9 @@ def send_corrupt_message(sock, message_text, ip, port, window_manager):
                     payload_frag = j_bytes + fragments[j]
 
                     # Create message (corrupted for chosen fragment)
-                    message = blackBox(3, flags=4, fragmentSeq=seq_num,
-                                       payload=payload_frag,
-                                       timestamp=message_id)
+                    message = manager(3, flags=4, fragmentSeq=seq_num,
+                                      payload=payload_frag,
+                                      timestamp=message_id)
 
                     # Store original message for retransmission
                     window_manager.sender_window.add_packet(Packet(seq_num, message.bytes, time.time()))
@@ -247,7 +247,7 @@ def sendPacket(ip: str, port: int):
     timeout_thread = threading.Thread(target=check_timeouts, args=(sock, ip, port), daemon=True)
     timeout_thread.start()
 
-    synMSG = blackBox(1, flags=2)
+    synMSG = manager(1, flags=2)
     print("To start talking, type !start")
 
     while True:
@@ -290,7 +290,7 @@ def sendPacket(ip: str, port: int):
                 continue
 
             if payload == "!end":
-                message = blackBox(1, flags=8)
+                message = manager(1, flags=8)
                 sendMSG(sock, message, ip, port)
                 print("Cutting Connection")
                 with controlThread.connection_lock:
@@ -350,12 +350,12 @@ def sendPacket(ip: str, port: int):
             print(f"Sending message: {payload}")
             fragments = [payload[i:i + fragMaxLen].encode('utf-8')
                          for i in range(0, len(payload), fragMaxLen)]
-            calc_checksum = blackBox.calculate_checksum(payload.encode('utf-8'))
+            calc_checksum = manager.calculate_checksum(payload.encode('utf-8'))
 
             if len(fragments) == 1:
-                message = blackBox(2, flags=1,
-                                   payload=fragments[0],
-                                   fragmentSeq=len(fragments))
+                message = manager(2, flags=1,
+                                  payload=fragments[0],
+                                  fragmentSeq=len(fragments))
                 sendMSG(sock, message, ip, port)
                 print("Sent single fragment message")
 
@@ -367,7 +367,7 @@ def sendPacket(ip: str, port: int):
 
             else:
                 message_id = get_new_message_id()  # Use the new fixed message_id
-                message = blackBox(3, flags=2, fragmentSeq=len(fragments), timestamp=message_id)
+                message = manager(3, flags=2, fragmentSeq=len(fragments), timestamp=message_id)
                 sendMSG(sock, message, ip, port)
 
                 for i in range(0, len(fragments), WINDOW_SIZE):
@@ -381,10 +381,10 @@ def sendPacket(ip: str, port: int):
                                 print(f"Sending fragment {j} a {seq_num}")
                                 j_bytes = j.to_bytes(4, byteorder='big')
                                 payload_frag = j_bytes + fragments[j]
-                                calc_checksum = blackBox.calculate_checksum(payload_frag)
+                                calc_checksum = manager.calculate_checksum(payload_frag)
 
-                                message = blackBox(3, flags=4, fragmentSeq=seq_num, payload=payload_frag,
-                                                   timestamp=message_id,checksum=calc_checksum)
+                                message = manager(3, flags=4, fragmentSeq=seq_num, payload=payload_frag,
+                                                  timestamp=message_id, checksum=calc_checksum)
                                 sendMSG(sock, message, ip, port)
                                 window_manager.sender_window.next_seq_num = (seq_num + 1) % (MAX_SEQ_NUM + 1)
 
@@ -396,7 +396,7 @@ def sendPacket(ip: str, port: int):
                         time.sleep(0.1)
 
                 # After sending the completion confirmation
-                confirm_msg = blackBox(2, flags=5)
+                confirm_msg = manager(2, flags=5)
                 sendMSG(sock, confirm_msg, ip, port, storeMessage=False)
 
                 # Reset sender window

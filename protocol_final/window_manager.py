@@ -88,7 +88,7 @@ def hashMSG(bytes):
     return crc
 
 
-class blackBox:
+class manager:
     def __init__(self, msgType: int, flags: int = 0, payload=[], fragmentSeq: int = 0, timestamp=None,
                      checksum=None):
         global lastTimestamp
@@ -163,7 +163,7 @@ def getIpAddress():
         s.close()
     return ipAddress
 
-def sendMSG(sock, message: blackBox, ip, port, storeMessage=True, sendBadMessage=False):
+def sendMSG(sock, message: manager, ip, port, storeMessage=True, sendBadMessage=False):
     if storeMessage:
         storedMessages.append(message)
     bytesToSend = message.bytes
@@ -192,7 +192,7 @@ def handle_nak(parsedMessage, fragmentSeq, sock, ip, port):
 
     if window_manager.sender_window and fragmentSeq in window_manager.sender_window.packets:
         packet = window_manager.sender_window.packets[fragmentSeq]
-        message = blackBox.fromMessageBytes(packet.payload)
+        message = manager.fromMessageBytes(packet.payload)
 
         print(f"Resending packet {fragmentSeq}")
         sendMSG(sock, message, ip, port, sendBadMessage=False)

@@ -1,7 +1,7 @@
 import socket
 import time
 import threading
-from blackBox import blackBox, sendMSG
+from window_manager import manager, sendMSG
 
 # Use a lock to protect shared state
 connection_lock = threading.Lock()
@@ -38,7 +38,7 @@ def sendControlPacket(ip: str, port: int):
                 time.sleep(5)
                 continue
 
-        message = blackBox(1, flags=4)  # generate an alive message
+        message = manager(1, flags=4)  # generate an alive message
         sendMSG(sock, message, ip, port)
 
         with connection_lock:
