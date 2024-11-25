@@ -23,7 +23,6 @@ local flag_definitions = {
         [8] = "FIN",
         [9] = "FIN-ACK"
     },
-
     -- Single Message Packet Flags
     [2] = {
         [1] = "Single Message",
@@ -44,7 +43,6 @@ local flag_definitions = {
 
         [6] = "Look missing fragment"
     },
-
     -- ACK/NACK Packet Flags
     [5] = {
         [1] = "ACK",

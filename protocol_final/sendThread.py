@@ -364,7 +364,7 @@ def sendPacket(ip: str, port: int):
                     window_manager.sender_window.add_packet(Packet(0, fragments[0], time.time()))
 
             else:
-                message_id = get_new_message_id()  # Use the new fixed message_id
+                message_id = get_new_message_id()
                 message = manager(3, flags=2, fragmentSeq=len(fragments), timestamp=message_id)
                 sendMSG(sock, message, ip, port)
 
