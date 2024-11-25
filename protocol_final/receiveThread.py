@@ -3,7 +3,6 @@ from threading import Lock
 
 import time
 from typing import Set, Dict
-import struct
 
 import controlThread
 from window_manager import manager, sendMSG, ReceiverWindow, lastMessageCorrupted,window_manager, handle_nak
@@ -169,7 +168,7 @@ def handle_text_message(parsedMessage, sock, ip, responsePort, receiver_window, 
     if parsedMessage['flags'] == 1:
         if receiver_window.is_in_window(seq_num):
             if wait_checksum == received_checksum:
-                # Send acknowledgment for verified message
+                # Send ack for verif. message
                 print(f"Message verified. Sending ACK for packet {seq_num}")
                 ack_message = manager(5, flags=1, fragmentSeq=seq_num, timestamp=message_id)
                 sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
@@ -184,7 +183,6 @@ def handle_text_message(parsedMessage, sock, ip, responsePort, receiver_window, 
 
     # Start of fragmented message
     elif parsedMessage['flags'] == 2:
-        # Initialize or reset the buffer for this message ID
         fragmented_messages[message_id] = {
             "buffer": [None] * parsedMessage["fragmentSeq"],
             "expected_fragments": parsedMessage["fragmentSeq"],
@@ -210,11 +208,11 @@ def handle_text_message(parsedMessage, sock, ip, responsePort, receiver_window, 
                     message_info["received_fragments"].add(extracted_j)
                     print(f"Fragment {extracted_j} received and verified")
 
-                # Send acknowledgment
+                # Send ack
                 ack_message = manager(5, flags=1, fragmentSeq=seq_num, timestamp=message_id)
                 sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
 
-                # Check if message is complete
+                # Check if message is complete sended
                 if len(message_info["received_fragments"]) == message_info["expected_fragments"]:
                     complete_message = ''.join(message_info["buffer"])
                     print(f"{addr} Sent a complete fragmented message: {complete_message}")
@@ -252,6 +250,7 @@ def receivePacket(ip: str, listenPort: int, responsePort: int):
                 sendMSG(sock, nak_message, ip, responsePort, storeMessage=False)
                 continue
 
+            # control messages
             if parsedMessage['msgType'] == 1:
                 # Handle control messages
                 with controlThread.connection_lock:
@@ -264,7 +263,7 @@ def receivePacket(ip: str, listenPort: int, responsePort: int):
                     elif parsedMessage['flags'] == 3:
                         controlThread.hasConnectionToPeer = True
                     elif parsedMessage['flags'] == 4:
-                        response = manager(1, flags=5)
+                        response = manager(1, flags=5) # response to keep alive
                         sendMSG(sock, response, ip, responsePort)
                     elif parsedMessage['flags'] == 5:
                         controlThread.expectingResponse = False

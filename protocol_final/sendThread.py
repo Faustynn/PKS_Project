@@ -99,13 +99,13 @@ def send_file(sock, filepath, ip, port, fragMaxLen=1500 - 6, corrupt=None, windo
                         message = manager(4, flags=4, fragmentSeq=seq_num, payload=fragments[i],
                                           checksum=manager.calculate_checksum(fragments[i]))
 
-                        # Determine if this fragment should be corrupted
+                        # Determine if this fragment corrupted
                         should_corrupt = (corrupt and
                                           i == corrupt_fragment and
                                           not corrupted_sent and
                                           retransmission_count[i] == 0)
 
-                        # Store original message for potential retransmission
+                        # Store original message
                         packet = Packet(seq_num, message.bytes, time.time())
 
                         if window_manager.sender_window.add_packet(packet):
@@ -117,25 +117,22 @@ def send_file(sock, filepath, ip, port, fragMaxLen=1500 - 6, corrupt=None, windo
 
                             sendMSG(sock, message, ip, port, sendBadMessage=should_corrupt)
                             window_manager.sender_window.next_seq_num = (seq_num + 1) % (MAX_SEQ_NUM + 1)
-
-                            # Wait shorter time between sends to prevent overwhelming receiver
                             time.sleep(0.01)
                         else:
                             print(f"Window full, waiting for ACKs...")
                             time.sleep(0.1)
                             break
 
-                # Wait for acknowledgments or timeout
+                # Wait for ack or timeout
                 timeout_start = time.time()
                 while time.time() - timeout_start < TIMEOUT / 1000:
                     with window_manager.window_lock:
                         if not window_manager.sender_window.packets:
-                            # All packets in current window acknowledged
                             window_base = i + 1
                             break
                     time.sleep(0.1)
 
-                # Check for timeouts and handle retransmissions
+                # Check for timeouts and handle retransmis.
                 with window_manager.window_lock:
                     current_time = time.time()
                     for seq_num, packet in list(window_manager.sender_window.packets.items()):
@@ -186,6 +183,7 @@ def send_corrupt_message(sock, message_text, ip, port, window_manager):
             # Create corrupted message with invalid checksum
             message = manager(2, flags=1, payload=fragments[0], fragmentSeq=seq_num)
             window_manager.sender_window.add_packet(Packet(seq_num, message.bytes, time.time()))
+
             # Send corrupted version
             sendMSG(sock, message, ip, port, sendBadMessage=True)
 
@@ -395,7 +393,7 @@ def sendPacket(ip: str, port: int):
                                 break
                         time.sleep(0.1)
 
-                # After sending the completion confirmation
+                # completion packet
                 confirm_msg = manager(2, flags=5)
                 sendMSG(sock, confirm_msg, ip, port, storeMessage=False)
 

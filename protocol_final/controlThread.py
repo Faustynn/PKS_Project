@@ -3,10 +3,9 @@ import time
 import threading
 from window_manager import manager, sendMSG
 
-# Use a lock to protect shared state
 connection_lock = threading.Lock()
 
-# Shared state variables
+# state variablec
 expectingResponse = False
 hasConnectionToPeer = False
 ConnectionManuallyInterrupted = False
@@ -38,7 +37,7 @@ def sendControlPacket(ip: str, port: int):
                 time.sleep(5)
                 continue
 
-        message = manager(1, flags=4)  # generate an alive message
+        message = manager(1, flags=4)  # keep alive mes.
         sendMSG(sock, message, ip, port)
 
         with connection_lock:

@@ -5,8 +5,8 @@ from collections import deque
 import threading
 
 WINDOW_SIZE = 10
-TIMEOUT = 5000  # milliseconds
-SEQ_NUM_BITS = 16  # Using 8 bits for sequence numbers
+TIMEOUT = 5000  # millisec.
+SEQ_NUM_BITS = 16
 MAX_SEQ_NUM = 2 ** SEQ_NUM_BITS - 1
 lastTimestamp = 0
 lastMessageCorrupted = False
@@ -25,7 +25,7 @@ class SenderWindow:
         self.size = size
         self.base = 0
         self.next_seq_num = 0
-        self.packets = {}  # Dict to store packets in window
+        self.packets = {}
 
     def is_full(self):
         return len(self.packets) >= self.size
@@ -66,7 +66,7 @@ class ReceiverWindow:
     def receive_packet(self, seq_num, payload):
         if self.is_in_window(seq_num):
             self.received_buffer[seq_num] = payload
-            # Try to advance window
+
             while self.base in self.received_buffer:
                 del self.received_buffer[self.base]
                 self.base = (self.base + 1) % (MAX_SEQ_NUM + 1)
@@ -95,9 +95,8 @@ class manager:
 
         infoList = []
         infoList.append((msgType << 4) | flags)
-        # Изменяем способ хранения fragmentSeq для поддержки 16 бит
-        infoList.append((fragmentSeq >> 8) & 0xFF)  # Старший байт
-        infoList.append(fragmentSeq & 0xFF)  # Младший байт
+        infoList.append((fragmentSeq >> 8) & 0xFF)
+        infoList.append(fragmentSeq & 0xFF)
         if timestamp is None:
             infoList.append((lastTimestamp + 1) % 256)
             self.timestamp = (lastTimestamp + 1) % 256
@@ -126,8 +125,7 @@ class manager:
                 'msgType': (self.bytes[0] >> 4),
                 'flags': self.bytes[0] & 15,
                 'checksum': self.bytes[1:3],
-                # Изменяем парсинг fragmentSeq для поддержки 16 бит
-                'fragmentSeq': (self.bytes[3] << 8) | self.bytes[4],  # Объединяем два байта
+                'fragmentSeq': (self.bytes[3] << 8) | self.bytes[4],
                 'timeStamp': int.from_bytes(self.bytes[5:6], byteorder='big'),
                 'payload': self.bytes[6:]
         }
@@ -148,8 +146,6 @@ class manager:
     def fromMessageBytes(cls, messageBytes):
         obj = cls.__new__(cls)
         obj.bytes = messageBytes
-
-        # Extract checksum for all packet without checksum
         obj.checksum = int.from_bytes(obj.bytes[1:3], byteorder='big')
         return obj
 
