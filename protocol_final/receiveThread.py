@@ -5,7 +5,8 @@ import time
 from typing import Set, Dict
 
 import controlThread
-from window_manager import manager, sendMSG, ReceiverWindow, lastMessageCorrupted,window_manager, handle_nak
+from window_manager import manager, sendMSG, ReceiverWindow, lastMessageCorrupted, window_manager, handle_nak, Packet
+
 
 SIZE = 8
 bigMessageBuffer = []
@@ -16,7 +17,6 @@ receiver_lock = Lock()
 file_transfer_state = {}
 receiver_window = None
 fragmented_messages = {}
-
 
 class FileTransferState:
     def __init__(self, filename: str):
@@ -31,6 +31,7 @@ class FileTransferState:
         self.request_attempts: Dict[int, int] = {}
         self.MAX_RETRIES = 3
         self.REQUEST_TIMEOUT = 5.0  # seconds
+        self.connection_interrupted = False  # Track if the connection was interrupted
 
     def initialize_file(self, size: int, count: int):
         self.file_size = size
@@ -72,6 +73,18 @@ class FileTransferState:
             self.file.write(self.fragments_data[i])
         self.file.close()
         return True
+
+    def handle_interruption(self, current_time: float):
+        """Handle interrupted connection, retry missing fragments."""
+        if self.connection_interrupted:
+            for missing_fragment in list(self.missing_fragments):
+                if self.can_request_fragment(missing_fragment, current_time):
+                    print(f"Requesting missing fragment {missing_fragment} after connection interruption")
+                    request_message = manager(4, flags=6, fragmentSeq=missing_fragment,
+                                              timestamp=current_time)
+                    sendMSG(sock, request_message, ip, responsePort, storeMessage=False)
+                    self.record_fragment_request(missing_fragment, current_time)
+
 def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_state: FileTransferState = None):
     checksum = manager.calculate_checksum(parsedMessage['payload'])
     current_time = time.time()
@@ -116,17 +129,27 @@ def handle_file_transfer(parsedMessage, sock, ip, responsePort, file_transfer_st
                                       timestamp=parsedMessage["timeStamp"])
                 sendMSG(sock, ack_message, ip, responsePort, storeMessage=False)
 
-                # Check for missing fragments
-                if len(file_transfer_state.missing_fragments) > 0:
-                    for missing_fragment in list(file_transfer_state.missing_fragments):
+                # Новая логика проверки и запроса недостающих фрагментов
+                window_size = 100  # Размер окна, можно вынести как параметр
+                window_start = max(0, fragment_num - window_size)
+                window_end = min(file_transfer_state.fragment_count, fragment_num + window_size)
+
+                # Фильтруем недостающие фрагменты в текущем окне
+                current_window_missing = {
+                    missing for missing in file_transfer_state.missing_fragments
+                    if window_start <= missing < window_end
+                }
+
+                if current_window_missing:
+                    for missing_fragment in sorted(current_window_missing):
                         if file_transfer_state.can_request_fragment(missing_fragment, current_time):
-                            print(f"Requesting missing fragment {missing_fragment}")
+                            print(f"Requesting missing fragment in current window: {missing_fragment}")
                             request_message = manager(4, flags=6, fragmentSeq=missing_fragment,
                                                       timestamp=parsedMessage["timeStamp"])
                             sendMSG(sock, request_message, ip, responsePort, storeMessage=False)
                             file_transfer_state.record_fragment_request(missing_fragment, current_time)
 
-                # Check if file is complete
+                # Проверка полноты передачи файла
                 if file_transfer_state.is_complete():
                     if file_transfer_state.write_file():
                         print("File transfer complete")
@@ -291,18 +314,41 @@ def receivePacket(ip: str, listenPort: int, responsePort: int):
                 with window_manager.window_lock:
                     print(f"Received ACK for packet {parsedMessage['fragmentSeq']}")
 
-                    if (window_manager.sender_window is not None and
-                        parsedMessage['fragmentSeq'] in window_manager.sender_window.packets):
-                        sender_window = window_manager.sender_window
+                    if window_manager.sender_window is not None:
                         seq_num = parsedMessage['fragmentSeq']
-                        sender_window.packets[seq_num].acknowledged = True
-                        sender_window.remove_packet(seq_num)
+
+                        # Print debug information
+                        print(f"Current sender window packets: {list(window_manager.sender_window.packets.keys())}")
+
+                        # Modify to handle packets more flexibly
+                        if seq_num in window_manager.sender_window.packets:
+                            packet = window_manager.sender_window.packets[seq_num]
+                            packet.acknowledged = True
+                            window_manager.sender_window.remove_packet(seq_num)
+                            print(f"Packet {seq_num} acknowledged and removed")
+                        else:
+                            # Add more flexible handling for ACKs
+                            print(f"Warning: ACK for packet {seq_num} not found in current window")
+
+                            # Try to find and update the packet in a more flexible way
+                            for p_seq, packet in list(window_manager.sender_window.packets.items()):
+                                if p_seq == seq_num:
+                                    packet.acknowledged = True
+                                    window_manager.sender_window.remove_packet(p_seq)
+                                    print(f"Found and acknowledged packet {p_seq}")
+                                    break
+
             elif parsedMessage['msgType'] == 5 and parsedMessage['flags'] == 2:
                 print(f"Received NAK for packet {parsedMessage['fragmentSeq']}")
                 handle_nak(parsedMessage, parsedMessage['fragmentSeq'], sock, ip, responsePort)
 
+                # Add to sender_window.packets
+                seq_num = parsedMessage['fragmentSeq']
+                window_manager.sender_window.add_packet(Packet(seq_num, window_manager.sender_window.packets[seq_num].payload, time.time()))
+                continue
             else:
                 print(f"Unknown message type: {parsedMessage['msgType']}")
+                continue
 
 
 

@@ -4,7 +4,7 @@ import time
 from collections import deque
 import threading
 
-WINDOW_SIZE = 10
+WINDOW_SIZE = 100
 TIMEOUT = 5000  # millisec.
 SEQ_NUM_BITS = 16
 MAX_SEQ_NUM = 2 ** SEQ_NUM_BITS - 1
@@ -41,12 +41,23 @@ class SenderWindow:
             return True
         return False
 
+    # def remove_packet(self, seq_num):
+    #     if seq_num in self.packets:
+    #         del self.packets[seq_num]
+    #         # Update base to the next unacknowledged packet
+    #         while self.base not in self.packets and self.base != self.next_seq_num:
+    #             self.base = (self.base + 1) % (MAX_SEQ_NUM + 1)
+    #
+
     def remove_packet(self, seq_num):
         if seq_num in self.packets:
             del self.packets[seq_num]
-            # Update base to the next unacknowledged packet
-            while self.base not in self.packets and self.base != self.next_seq_num:
-                self.base = (self.base + 1) % (MAX_SEQ_NUM + 1)
+
+        while self.base not in self.packets and self.base != self.next_seq_num:
+            self.base = (self.base + 1) % (MAX_SEQ_NUM + 1)
+
+        if self.base > self.next_seq_num:
+            self.base = self.next_seq_num
 
 class ReceiverWindow:
     def __init__(self, size):
@@ -137,6 +148,7 @@ class manager:
             lastMessageCorrupted = True
             print(f"Checksum mismatch: expected {received_checksum}, got {payload_checksum}")
 
+
         return message
 
     @classmethod
@@ -195,6 +207,9 @@ def handle_nak(parsedMessage, fragmentSeq, sock, ip, port):
         packet.send_time = time.time()
 
         packet.acknowledged = False
+        # Add to sender window
+        window_manager.sender_window.add_packet(packet)
+
     else:
         print(f"Packet {fragmentSeq} not found in window")
 

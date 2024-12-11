@@ -31,10 +31,10 @@ def sendControlPacket(ip: str, port: int):
 
         with connection_lock:
             if expectingResponse:
+                time.sleep(5)
                 print("Lost connection to peer")
                 hasConnectionToPeer = False
                 expectingResponse = False
-                time.sleep(5)
                 continue
 
         message = manager(1, flags=4)  # keep alive mes.
